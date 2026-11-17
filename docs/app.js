@@ -23,6 +23,24 @@ const weekIdx = (d = new Date()) => (d.getDay() + 6) % 7; // 0 = lundi
 const mondayKey = () => { const x = new Date(); x.setDate(x.getDate() - weekIdx(x)); return dkey(x); };
 const isPdc = k => LIB[k].t === "pdc";
 const unitOf = k => LIB[k].t === "haltere" ? "kg par haltère" : "kg";
+// ---------- Disques : quoi mettre de chaque côté de la barre ----------
+const PLATES = [25, 20, 15, 10, 5, 2.5, 1.25];
+function platesFor(k, w) {
+  if (LIB[k].t !== "barre" || w == null || w === "") return null;
+  const bar = LIB[k].bar || 20;
+  if (w < bar) return { bar, text: `Moins lourd que la barre seule (${bar} kg)` };
+  let side = Math.round((w - bar) / 2 * 100) / 100;
+  if (side === 0) return { bar, text: `Barre seule (${bar} kg)` };
+  const out = [];
+  PLATES.forEach(p => { while (side >= p - 1e-9) { out.push(p); side = Math.round((side - p) * 100) / 100; } });
+  const rest = side > 0.01 ? ` (+${fmtN(side * 2)} kg impossible à faire)` : "";
+  return { bar, list: out, text: out.map(v => String(v).replace(".", ",")).join(" + ") + " kg de chaque côté" + rest };
+}
+function platesHTML(k, w) {
+  const p = platesFor(k, w); if (!p) return "";
+  const discs = (p.list || []).map(x => `<i class="plate" style="--h:${Math.round(18 + x * 1.6)}px" aria-hidden="true"></i>`).join("");
+  return `<div class="plates-row">${discs ? `<span class="plate-viz" aria-hidden="true"><i class="bar-end"></i>${discs}</span>` : ""}<span>${esc(p.text)}<small>Barre de ${p.bar} kg</small></span></div>`;
+}
 const estimate = d => Math.round(d.ex.reduce((t, x) => t + x.sets * (45 + x.rest), 0) / 60) + 8;
 // Pont vers l'appli Android (absent quand Notch tourne dans un navigateur)
 const NATIVE = window.NotchNative || null;
@@ -75,8 +93,9 @@ function load() {
     DB = { logs: o.logs || {}, body: o.body || {}, lastExport: o.lastExport || null, prefs: Object.assign({}, DEFAULT_PREFS, o.prefs || {}) };
   } catch (e) {}
   DB.prefs.notif = Object.assign({}, DEFAULT_PREFS.notif, DB.prefs.notif || {});
+  DB.prefs.notes = DB.prefs.notes || {};
 }
-const DEFAULT_PREFS = { swaps: {}, sound: true, solid: false, notif: { session: true, time: "17:30", weekly: true } };
+const DEFAULT_PREFS = { swaps: {}, notes: {}, sound: true, solid: false, notif: { session: true, time: "17:30", weekly: true } };
 function applyPrefs() {
   document.documentElement.classList.toggle("solid", !!DB.prefs.solid);
   native("setReminders", JSON.stringify(DB.prefs.notif));
@@ -454,7 +473,7 @@ function openSession(dayId) {
       DB.logs[id] = { date: today(), day: dayId, startedAt: Date.now(), finished: false, ex: {}, swap };
       save();
     }
-    G = { dayId, docId: id, ex: 0, set: 0, screen: "intro" };
+    G = { dayId, docId: id, ex: 0, set: 0, screen: "intro", warmed: false, warm: [] };
     const list = exs(), ex = list.findIndex(x => firstPending(x) >= 0);
     G.ex = ex < 0 ? list.length - 1 : ex;
     G.set = Math.max(0, firstPending(list[G.ex]));
@@ -495,6 +514,7 @@ function goto(screen, from = null) {
   G.screen = screen; saveG();
   if (screen === "intro") screenIntro(from);
   else if (screen === "set") screenSet();
+  else if (screen === "warmup") screenWarmup();
   else if (screen === "done") screenDone();
 }
 
@@ -535,6 +555,7 @@ function screenIntro(from = null) {
       <h1 class="d s-title">${esc(L.n)}</h1>
       ${canSwap ? `<button class="swap-btn" type="button" data-act="swap"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h11l-3-3M17 17H6l3 3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>${x.k !== x.base ? "Variante de " + esc(LIB[x.base].n) : "Remplacer par une variante"}</button>` : ""}
     </div>
+    ${noteCard(x.k)}
     <div class="card coach"><b>${c.w != null && !isPdc(x.k) ? "Objectif : " + fmtW(c.w) : "Objectif"}</b><span class="chip ${c.type}">${c.label}</span><p>${esc(c.text)}</p></div>
     <div class="card zones">
       ${bodyMap(x.k)}
@@ -551,6 +572,58 @@ function screenIntro(from = null) {
       <a class="link" style="text-align:center" href="https://www.youtube.com/results?search_query=${encodeURIComponent(L.q)}" target="_blank" rel="noopener">Voir une démo vidéo</a>
       <button class="btn-main" type="button" data-act="begin">C’est parti ${ARROW}</button>
     </div>`, "", from);
+}
+
+// ---------- Réglages de machine (siège, dossier, position des pieds…) ----------
+function noteCard(k) {
+  const n = DB.prefs.notes[k];
+  return `<button type="button" class="card note-card${n ? "" : " empty-note"}" data-act="note" data-k="${k}">
+    <span class="eyebrow">Tes réglages</span>
+    <span>${n ? esc(n) : "Ajoute tes réglages de machine : siège, dossier, position des pieds…"}</span></button>`;
+}
+function openNote(k) {
+  openSheet(`
+    <div class="stack" style="gap:4px"><div class="eyebrow">${esc(LIB[k].n)}</div><h2 class="d up h2">Tes réglages</h2></div>
+    <label class="field" for="note-text">Ce que tu règles à chaque fois
+      <textarea id="note-text" rows="3" maxlength="160" placeholder="Siège cran 4, dossier 2, pieds en haut de la plateforme">${esc(DB.prefs.notes[k] || "")}</textarea></label>
+    <button class="btn-main" type="button" data-act="save-note" data-k="${k}">Enregistrer</button>`, "Réglages de la machine");
+}
+
+// ---------- Échauffement : 2 séries légères avant le premier exercice chargé ----------
+function needsWarmup() {
+  if (G.warmed) return false;
+  const list = exs(), x = curX();
+  if (isPdc(x.k) || doneSets(setsOf(x)).length) return false;
+  const firstLoaded = list.findIndex(e => !isPdc(e.k));
+  return G.ex === firstLoaded;
+}
+function warmSets(x) {
+  const p = prefill(x, 0), w = num(p.w), step = STEP[LIB[x.k].t] || 2.5;
+  if (!w) return [];
+  const min = LIB[x.k].t === "barre" ? (LIB[x.k].bar || 20) : 0;
+  const r = v => Math.max(min, Math.round(v / step) * step);
+  return [{ w: r(w * 0.5), reps: 10, pct: 50 }, { w: r(w * 0.75), reps: 5, pct: 75 }];
+}
+function screenWarmup() {
+  const x = curX(), L = LIB[x.k], sets = warmSets(x);
+  if (!sets.length) { G.warmed = true; return goto("set"); }
+  G.warm = G.warm || [];
+  topbar(L.n);
+  transition(`
+    <div class="stack" style="gap:6px"><div class="eyebrow">Avant ${esc(L.n.toLowerCase())}</div><h1 class="d s-title">Échauffement</h1></div>
+    <p class="muted" style="margin:0;font-size:15px">Deux séries légères pour préparer les articulations. Elles ne comptent pas dans tes progrès. Repos libre, environ 1 minute.</p>
+    <div class="stack" style="gap:10px">${sets.map((s, i) => `
+      <div class="card warm-row${G.warm[i] ? " ok" : ""}">
+        <div class="row">
+          <div class="stack" style="gap:2px"><span class="eyebrow">${s.pct} % · ${s.reps} reps</span><b class="d" style="font-size:30px">${fmtN(s.w)}<small style="font-size:15px"> ${unitOf(x.k)}</small></b></div>
+          <button type="button" class="warm-btn" data-act="warm-done" data-i="${i}" aria-pressed="${!!G.warm[i]}" aria-label="Série d’échauffement ${i + 1} faite">
+            <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        </div>
+        ${platesHTML(x.k, s.w)}
+      </div>`).join("")}</div>
+    <div class="push">
+      <button class="btn-main" type="button" data-act="warm-end">Passer aux séries ${ARROW}</button>
+    </div>`);
 }
 
 // Valeurs proposées pour une série
@@ -579,12 +652,14 @@ function screenSet() {
   const hint = { edit: "Tu modifies une série déjà faite.", prev: "Repris de ta série précédente.", coach: "Le coach te fait monter d’un cran.", hist: "Repris de ta dernière séance.", start: "Charge de départ du programme." }[p.from];
   transition(`
     <div class="big-set"><span class="d n up">Série ${j + 1}</span><span class="d of">/ ${x.sets}</span></div>
+    ${DB.prefs.notes[x.k] ? `<button type="button" class="note-line" data-act="note" data-k="${x.k}"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>${esc(DB.prefs.notes[x.k])}</button>` : ""}
     <div class="sets" style="--n:${x.sets}">${chips}</div>
     <div class="muted" style="font-size:14px">Objectif <b style="color:var(--ink)">${x.lo} à ${x.hi} reps</b>${hist && hist.sets[j] ? ` · dernière fois ${hist.sets[j].r} × ${isPdc(x.k) ? "" : fmtN(hist.sets[j].w) + " kg"}` : ""}</div>
     ${isPdc(x.k) ? "" : `<div class="stepper">
       <button type="button" data-act="step" data-f="w" data-d="-${STEP[L.t]}" aria-label="Moins ${fmtN(STEP[L.t])} kg">−</button>
       <label class="mid" for="in-w"><span>Charge</span><input id="in-w" type="text" inputmode="decimal" value="${p.w === "" || p.w == null ? "" : fmtN(p.w)}" placeholder="0"><span class="unit">${unitOf(x.k)}</span></label>
-      <button type="button" data-act="step" data-f="w" data-d="${STEP[L.t]}" aria-label="Plus ${fmtN(STEP[L.t])} kg">+</button></div>`}
+      <button type="button" data-act="step" data-f="w" data-d="${STEP[L.t]}" aria-label="Plus ${fmtN(STEP[L.t])} kg">+</button></div>
+    <div id="plates" aria-live="polite">${platesHTML(x.k, p.w)}</div>`}
     <div class="stepper">
       <button type="button" data-act="step" data-f="r" data-d="-1" aria-label="Une répétition de moins">−</button>
       <label class="mid" for="in-r"><span>Répétitions</span><input id="in-r" type="text" inputmode="numeric" value="${p.r}"><span class="unit">reps</span></label>
@@ -1080,7 +1155,11 @@ document.addEventListener("click", e => {
   if (a === "sheet-close") return closeSheet();
   if (a === "unswap") { delete DB.prefs.swaps[b.dataset.day + ":" + b.dataset.i]; save(); return renderProgram(); }
   if (!G) return;
-  if (a === "begin") { const j = firstPending(curX()); G.set = j < 0 ? 0 : j; return goto("set"); }
+  if (a === "begin") { const j = firstPending(curX()); G.set = j < 0 ? 0 : j; return goto(needsWarmup() ? "warmup" : "set"); }
+  if (a === "warm-done") { G.warm = G.warm || []; G.warm[+b.dataset.i] = !G.warm[+b.dataset.i]; saveG(); vibrate(15); b.setAttribute("aria-pressed", String(!!G.warm[+b.dataset.i])); b.closest(".warm-row").classList.toggle("ok", !!G.warm[+b.dataset.i]); return; }
+  if (a === "warm-end") { G.warmed = true; saveG(); return goto("set"); }
+  if (a === "note") return openNote(b.dataset.k);
+  if (a === "save-note") { const v = ($("note-text").value || "").trim(); if (v) DB.prefs.notes[b.dataset.k] = v.slice(0, 160); else delete DB.prefs.notes[b.dataset.k]; save(); closeSheet(); vibrate(10); return goto(G.screen === "set" ? "set" : "intro"); }
   if (a === "intro") return goto("intro");
   if (a === "validate") return validate();
   if (a === "edit") { G.set = +b.dataset.j; return goto("set"); }
@@ -1089,7 +1168,9 @@ document.addEventListener("click", e => {
   if (a === "jump") { clearInterval(timer); timer = null; native("cancelRest"); delete G.restEnd; delete G.after; G.ex = +b.dataset.i; G.set = Math.max(0, firstPending(curX())); return goto("intro"); }
   if (a === "step") {
     const inp = $("in-" + b.dataset.f), cur = num(inp.value) || 0, nv = Math.max(0, Math.round((cur + parseFloat(b.dataset.d)) * 10) / 10);
-    inp.value = b.dataset.f === "r" ? String(Math.max(1, Math.round(nv))) : fmtN(nv); vibrate(8); return;
+    inp.value = b.dataset.f === "r" ? String(Math.max(1, Math.round(nv))) : fmtN(nv); vibrate(8);
+    if (b.dataset.f === "w" && $("plates")) $("plates").innerHTML = platesHTML(curX().k, nv);
+    return;
   }
   if (a === "plus") { G.restEnd = Math.max(G.restEnd, Date.now()) + 15000; G.restTotal += 15; saveG(); scheduleNativeRest(); if (!timer) { const el = $("stage").querySelector(".screen:not(.leave)"); el.classList.remove("go"); timer = setInterval(() => tick(el), 200); } return; }
   if (a === "skip") return proceed();
@@ -1100,6 +1181,9 @@ $("import-file").addEventListener("change", e => { const f = e.target.files[0]; 
 document.addEventListener("change", e => {
   if (e.target.id === "pk") { PK = e.target.value; renderProgress(); }
   else if (e.target.id && e.target.id.startsWith("st-")) onSettingChange(e.target.id, e.target);
+});
+document.addEventListener("input", e => {
+  if (e.target.id === "in-w" && $("plates") && G) $("plates").innerHTML = platesHTML(curX().k, num(e.target.value));
 });
 document.addEventListener("submit", e => {
   if (e.target.id !== "bform") return; e.preventDefault();

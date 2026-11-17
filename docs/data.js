@@ -49,7 +49,7 @@ const BODY = {
 };
 
 // Bibliothèque d'exercices
-// t : type de matériel · p : muscles principaux · s : muscles secondaires
+// bar : poids de la barre si ce n’est pas une barre olympique de 20 kg · t : type de matériel · p : muscles principaux · s : muscles secondaires
 // st : le geste, étape par étape · q : recherche pour la démo vidéo
 const LIB = {
   dc: { n: "Développé couché", t: "barre", p: ["pecs"], s: ["deltsF", "triceps"], q: "développé couché barre technique",
@@ -120,13 +120,13 @@ Object.assign(LIB, {
     st: ["Debout, haltères le long du corps, buste légèrement penché.", "Monte sur les côtés jusqu’aux épaules, coudes un peu fléchis.", "Redescends lentement, sans élan."] },
   elm: { n: "Élévations latérales machine", t: "machine", p: ["deltsF", "deltsR"], s: ["traps"], q: "lateral raise machine technique",
     st: ["Coudes contre les coussins, épaules basses.", "Monte jusqu’à l’horizontale.", "Redescends en contrôle."] },
-  curlez: { n: "Curl barre EZ", t: "barre", p: ["biceps"], s: ["forearms"], q: "curl barre ez technique",
+  curlez: { n: "Curl barre EZ", t: "barre", bar: 10, p: ["biceps"], s: ["forearms"], q: "curl barre ez technique",
     st: ["Debout, barre EZ en supination, coudes au corps.", "Monte sans balancer le buste.", "Redescends en 2 à 3 secondes."] },
   curlpup: { n: "Curl pupitre machine", t: "machine", p: ["biceps"], s: ["forearms"], q: "curl pupitre machine technique",
     st: ["Bras posés sur le pupitre, coudes alignés avec l’axe.", "Monte en contractant le biceps.", "Redescends jusqu’aux bras presque tendus."] },
   curlpoul: { n: "Curl poulie basse", t: "poulie", p: ["biceps"], s: ["forearms"], q: "curl poulie basse technique",
     st: ["Face à la poulie basse, barre droite, coudes au corps.", "Monte sans bouger les coudes.", "Redescends en gardant la tension."] },
-  barfront: { n: "Barre au front", t: "barre", p: ["triceps"], s: [], q: "barre au front ez technique",
+  barfront: { n: "Barre au front", t: "barre", bar: 10, p: ["triceps"], s: [], q: "barre au front ez technique",
     st: ["Allongé, barre EZ au-dessus du visage, bras verticaux.", "Plie les coudes pour descendre la barre vers le front.", "Tends les bras sans écarter les coudes."] },
   tribar: { n: "Extension triceps barre", t: "poulie", p: ["triceps"], s: [], q: "extension triceps poulie barre droite technique",
     st: ["Barre droite à la poulie haute, coudes collés.", "Pousse jusqu’aux bras tendus.", "Remonte jusqu’à 90° sans décoller les coudes."] },

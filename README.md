@@ -35,6 +35,9 @@ Tout se règle dans Réglages (roue dentée sur l'accueil), avec aussi « Rédui
 
 - Chaque exercice commence par un écran qui montre les muscles travaillés et le geste en 3 points. Le bouton **Remplacer par une variante** propose 2 ou 3 exercices qui travaillent les mêmes muscles, pour la séance ou pour toujours.
 - Une série à la fois : charge et répétitions reprises de la dernière fois, ajustables avec − et +.
+- **Tes réglages** : une note par exercice (siège, dossier, pieds…), rappelée avant chaque série.
+- **Échauffement** : avant le premier exercice chargé, 2 séries légères (50 % × 10, 75 % × 5).
+- **Disques** : pour les exercices à la barre, ce qu'il faut mettre de chaque côté (barre de 20 kg, ou 10 kg pour la barre EZ).
 - Récupération en plein écran. Les 10 dernières secondes passent en rouge, le téléphone vibre chaque seconde et bipe sur les 3 dernières.
 - Si tu verrouilles le téléphone ou quittes l'appli, le compte à rebours continue dans les notifications et une alerte te prévient à la fin.
 

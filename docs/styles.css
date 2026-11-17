@@ -348,3 +348,26 @@ html.solid .glass { background: var(--surface); -webkit-backdrop-filter: none; b
 .list-row b { font-size: 16px; }
 .list-row svg { color: var(--muted); flex: none; }
 .list-row.warn b { color: var(--warn); }
+
+/* ---------- Réglages de machine ---------- */
+.note-card { width: 100%; text-align: left; display: flex; flex-direction: column; gap: 4px; font-size: 15px; color: var(--ink); transition: transform 160ms var(--ease); }
+.note-card:active { transform: scale(.98); }
+.note-card.empty-note { border-style: dashed; background: transparent; color: var(--muted); }
+.note-line { align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; border: none; background: var(--accent-soft); color: var(--accent); border-radius: 12px; padding: 8px 12px; font-size: 14px; font-weight: 600; text-align: left; min-height: 40px; }
+textarea { font: inherit; font-size: 16px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; resize: none; width: 100%; }
+
+/* ---------- Disques ---------- */
+.plates-row { display: flex; align-items: center; gap: 12px; font-size: 14px; font-weight: 600; padding: 2px 4px; }
+.plates-row span { display: flex; flex-direction: column; gap: 1px; }
+.plates-row small { font-size: 12px; color: var(--muted); font-weight: 500; }
+.plate-viz { flex-direction: row !important; align-items: center; gap: 2px !important; flex: none; }
+.bar-end { width: 14px; height: 6px; border-radius: 2px; background: var(--muted); }
+.plate { width: 7px; height: var(--h); border-radius: 2px; background: var(--accent); }
+#plates:empty { display: none; }
+
+/* ---------- Échauffement ---------- */
+.warm-row { display: flex; flex-direction: column; gap: 8px; transition: border-color 200ms ease, background-color 200ms ease; }
+.warm-row.ok { border-color: var(--ok); background: var(--ok-soft); }
+.warm-btn { width: 56px; height: 56px; border-radius: 50%; border: 1.5px solid var(--line); background: var(--surface); color: var(--muted); display: grid; place-items: center; transition: transform 160ms var(--ease), background-color 200ms ease, color 200ms ease; }
+.warm-btn:active { transform: scale(.94); }
+.warm-row.ok .warm-btn { background: var(--ok); border-color: var(--ok); color: #FFFFFF; }
