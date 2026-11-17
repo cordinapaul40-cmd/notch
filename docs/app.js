@@ -193,42 +193,56 @@ function lineChart(pts, { unit = "kg", h = 180, label = "" } = {}) {
 // ---------- Navigation entre vues ----------
 let VIEW = "accueil", PTAB = null, PK = null, ARMED = null;
 const VIEWS = ["accueil", "programme", "progres", "seche"];
-function show(v) {
+function show(v, from = null) {
   if (!VIEWS.includes(v)) v = "accueil";
   VIEW = v;
   VIEWS.forEach(n => $("v-" + n).hidden = n !== v);
+  // Arrivée du côté du geste quand on change d'onglet en glissant
+  const el = $("v-" + v);
+  el.style.transition = "none"; el.style.transform = ""; el.style.opacity = "";
+  if (from && !REDUCED) {
+    el.style.transform = `translateX(${from === "right" ? 32 : -32}%)`; el.style.opacity = "0";
+    void el.offsetHeight;
+    el.style.transition = "transform 280ms var(--ease), opacity 200ms ease";
+    el.style.transform = ""; el.style.opacity = "";
+  }
   document.querySelectorAll(".tb").forEach(b => b.dataset.view === v ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current"));
   if (location.hash !== "#" + v) history.replaceState(null, "", "#" + v);
-  render(); window.scrollTo(0, 0);
+  render(); if (!from) window.scrollTo(0, 0); else window.scrollTo(0, 0);
 }
 function render() { ({ accueil: renderHome, programme: renderProgram, progres: renderProgress, seche: renderBody })[VIEW](); }
 
-// ---------- Accueil ----------
+// ---------- Accueil (proposition A · Focus) ----------
+// Un seul but : lancer la séance. Tout le reste est à un geste.
 function renderHome() {
   const t = today(), wi = weekIdx(), mon = mondayKey();
   const todayDay = DAYS.find(d => d.wd === (wi + 1));
   const nextDay = todayDay || DAYS.find(d => d.wd > wi + 1) || DAYS[0];
   const active = G && DB.logs[G.docId] && !DB.logs[G.docId].finished ? dayById(G.dayId) : null;
   const d = active || nextDay;
-  const docToday = DB.logs[t + "_" + d.id];
-  const finished = docToday && docToday.finished;
+  const finished = !active && DB.logs[t + "_" + d.id] && DB.logs[t + "_" + d.id].finished;
+  const after = finished ? (DAYS.find(x => x.wd > wi + 1) || DAYS[0]) : null;
   const weekDone = new Set(Object.values(DB.logs).filter(l => l.date >= mon && hasSets(l)).map(l => l.day));
-  const labels = ["L", "M", "M", "J", "V", "S", "D"];
-  const week = labels.map((l, i) => {
-    const day = DAYS.find(x => x.wd === i + 1), done = day && weekDone.has(day.id);
-    const cls = !day ? "off" : (done ? "done" : (i === wi ? "today" : ""));
-    return `<div class="wd ${cls}" title="${day ? esc(day.title) : "Repos"}">${l}<i></i></div>`;
+  const dots = Array.from({ length: 7 }, (_, i) => {
+    const day = DAYS.find(x => x.wd === i + 1);
+    const cls = !day ? "off" : (weekDone.has(day.id) ? "done" : "plan");
+    return `<i class="dot-d ${cls}${i === wi ? " now" : ""}"></i>`;
   }).join("");
 
-  const alerts = [];
-  programKeys().forEach((x, k) => { const c = coach(x); if (c.type === "monte" || c.type === "stagne") alerts.push({ k, c }); });
-  const first = exList(d.id, active ? G.docId : null)[0], fc = coach(first, active ? G.docId : undefined);
-  const lastFirst = sessionsWith(first.k, active ? G.docId : undefined)[0];
-  const curLoad = lastFirst ? Math.max(...lastFirst.sets.map(s => s.w || 0)) : first.w0;
-  const lastBody = Object.values(DB.body).filter(b => b.weight != null).sort((a, b) => b.date.localeCompare(a.date))[0];
+  // Le conseil du coach : une alerte (monte / stagne) en priorité, sinon le premier exercice du jour
+  let tip = null;
+  programKeys().forEach((x, k) => { const c = coach(x); if (!tip && (c.type === "monte" || c.type === "stagne")) tip = { k, c }; });
+  const first = exList(d.id, active ? G.docId : null)[0];
+  if (!tip) tip = { k: first.k, c: coach(first, active ? G.docId : undefined) };
+
+  const h = weekHeat();
+  const W = Object.values(DB.body).filter(b => b.weight != null).sort((a, b) => a.date.localeCompare(b.date));
+  const lastW = W[W.length - 1], firstW = W[0];
   const expAge = DB.lastExport ? Math.floor((Date.now() - parseD(DB.lastExport)) / 864e5) : null;
   const nbSessions = Object.values(DB.logs).filter(hasSets).length;
+  const backupLate = nbSessions > 0 && (expAge == null || expAge > 7);
   const hour = new Date().getHours();
+  const CHEV = `<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
   $("v-accueil").innerHTML = `
     <div class="row">
@@ -236,47 +250,40 @@ function renderHome() {
         <div class="eyebrow">${esc(new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" }))}</div>
         <h1 class="d h1">${hour >= 18 ? "Bonsoir" : "Salut"} Paul</h1>
       </div>
-      <button class="icon-btn glass" type="button" data-act="settings" aria-label="Réglages"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+      ${SETTINGS_BTN}
     </div>
 
-    <div class="stack">
-      <div class="row" style="font-size:13px"><b>Cette semaine</b><span class="muted">${weekDone.size} / 4 séances</span></div>
-      <div class="week">${week}</div>
-    </div>
-
-    <div class="hero">
-      <div class="stack" style="gap:6px">
-        <div class="eyebrow" style="color:#FFFFFF;opacity:.8">${active ? "Séance en cours" : (todayDay ? "Aujourd’hui" : "Prochaine séance · " + d.day.toLowerCase())} · ${esc(d.tag)}</div>
-        <h2 class="d up" style="font-size:32px;line-height:.95">${esc(d.title)}</h2>
-        <div style="font-size:14px;opacity:.85">${d.ex.length} exercices · environ ${estimate(d)} min · ${esc(LIB[first.k].n.toLowerCase())} en premier</div>
+    <section class="hero hero-a" aria-label="Séance">
+      <div class="stack" style="gap:8px">
+        <div class="eyebrow" style="color:#FFFFFF;opacity:.8">${active ? "Séance en cours" : (finished ? "Séance faite aujourd’hui" : (todayDay ? "Aujourd’hui" : "Prochaine séance · " + d.day.toLowerCase()))} · ${esc(d.tag)}</div>
+        <h2 class="d up hero-title">${esc(finished ? after.title : d.title)}</h2>
+        <div style="font-size:15px;opacity:.85">${finished ? "Prochaine : " + after.day.toLowerCase() + " · " + exList(after.id).length + " exercices" : `${d.ex.length} exercices · environ ${estimate(d)} min`}</div>
       </div>
-      ${finished && !active ? `<div class="done-msg">Séance faite aujourd’hui. Bien joué.</div>`
+      <div class="week-dots" aria-label="${weekDone.size} séances sur 4 cette semaine">${dots}<span>${weekDone.size} / 4 cette semaine</span></div>
+      <div class="hero-tip">
+        <span class="eyebrow" style="color:#FFFFFF;opacity:.85">Le coach</span>
+        <span>${esc(LIB[tip.k].n)} : ${esc(tip.c.text.charAt(0).toLowerCase() + tip.c.text.slice(1))}</span>
+      </div>
+      ${finished ? `<div class="done-msg">Bien joué. Repos, protéines, et on remet ça ${after.day.toLowerCase()}.</div>`
         : `<button class="btn-go" type="button" data-act="open" data-day="${d.id}">${active ? "Reprendre" : "Commencer"} ${ARROW}</button>`}
-    </div>
+      <button class="hero-link" type="button" data-act="change">Changer de séance</button>
+    </section>
 
-    ${heatCard()}
+    <nav class="card list" aria-label="Raccourcis">
+      <button type="button" class="list-row" data-view="progres"><span><small>Muscles de la semaine</small><b>${h.any ? "À travailler : " + esc(MUSCLES[h.weak].toLowerCase()) : "Pas encore de séance cette semaine"}</b></span>${CHEV}</button>
+      <button type="button" class="list-row" data-view="seche"><span><small>Sèche</small><b>${lastW ? fmtN(lastW.weight) + " kg" + (W.length > 1 ? ` · ${lastW.weight - firstW.weight <= 0 ? "" : "+"}${fmtN(lastW.weight - firstW.weight)} kg depuis le ${frDate(firstW.date)}` : "") : "Note ta première pesée"}</b></span>${CHEV}</button>
+      ${backupLate ? `<button type="button" class="list-row warn" data-act="settings"><span><small>Sauvegarde</small><b>${expAge == null ? "Jamais faite" : "Il y a " + expAge + " jours"} : exporte tes données</b></span>${CHEV}</button>` : ""}
+    </nav>`;
+}
+const SETTINGS_BTN = `<button class="icon-btn glass" type="button" data-act="settings" aria-label="Réglages"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>`;
 
-    <div class="stack">
-      <div class="row"><h2 class="d up h2">Le coach</h2></div>
-      ${alerts.length ? alerts.slice(0, 3).map(a => `<div class="card coach"><b>${esc(LIB[a.k].n)}</b><span class="chip ${a.c.type}">${a.c.label}</span><p>${esc(a.c.text)}</p></div>`).join("")
-        : `<div class="card coach"><b>${esc(LIB[first.k].n)}</b><span class="chip ${fc.type}">${fc.label}</span><p>${esc(fc.text)}</p></div>`}
-    </div>
-
-    <div class="grid2">
-      <div class="tile"><span class="k">${esc(LIB[first.k].n)}</span><span class="v">${curLoad != null ? fmtN(curLoad) + "<small> kg</small>" : "—"}</span><span class="s">${lastFirst ? "dernière séance" : "charge de départ"}</span></div>
-      <div class="tile"><span class="k">Poids</span><span class="v">${lastBody ? fmtN(lastBody.weight) + "<small> kg</small>" : "—"}</span><span class="s">${lastBody ? "au " + frDate(lastBody.date) : "à noter dans Sèche"}</span></div>
-    </div>
-
-    <div class="stack">
-      <div class="eyebrow">Faire une autre séance</div>
-      <div class="others">${DAYS.filter(x => x.id !== d.id).map(x => `<button class="btn" type="button" data-act="open" data-day="${x.id}">${x.tab}</button>`).join("")}</div>
-    </div>
-
-    <div class="card stack">
-      <div class="row"><b>Sauvegarde</b><span class="chip ${expAge == null || expAge > 7 ? "stagne" : "monte"}">${expAge == null ? "Jamais" : (expAge === 0 ? "Aujourd’hui" : "Il y a " + expAge + " j")}</span></div>
-      <p class="muted" style="margin:0;font-size:14px">Tes ${nbSessions} séance${nbSessions > 1 ? "s" : ""} et tes mesures sont seulement sur ce téléphone. Exporte-les chaque semaine : c’est ta sauvegarde, et c’est le fichier à m’envoyer pour faire tes bilans.</p>
-      <div class="grid2"><button class="btn btn-dark" type="button" data-act="export">Exporter</button><button class="btn" type="button" data-act="import">Importer</button></div>
-    </div>`;
+// Panneau : choisir une autre séance
+function openChange() {
+  openSheet(`
+    <h2 class="d up h2">Changer de séance</h2>
+    <div class="stack" style="gap:10px">${DAYS.map(x => `<button type="button" class="option" data-act="open" data-day="${x.id}">
+      <span class="row"><b class="d up" style="font-size:17px;text-align:left">${esc(x.title)}</b><span class="chip garde">${esc(x.day)}</span></span>
+      <span class="muted" style="font-size:13px;text-align:left;display:block">${x.ex.length} exercices · environ ${estimate(x)} min · ${esc(x.tag.toLowerCase())}</span></button>`).join("")}</div>`, "Changer de séance");
 }
 
 // ---------- Carte de chaleur des muscles ----------
@@ -348,6 +355,7 @@ function renderProgress() {
   const recs = []; keys.forEach((xx, k) => { const b = bestOf(k); if (b) recs.push({ k, ...b }); });
   $("v-progres").innerHTML = `
     <div class="stack" style="gap:4px"><div class="eyebrow">Courbes et records</div><h1 class="d h1 up">Progrès</h1></div>
+    ${heatCard()}
     <label class="field" for="pk">Exercice
       <select id="pk">${[...keys.keys()].map(k => `<option value="${k}" ${k === PK ? "selected" : ""}>${esc(LIB[k].n)}${sessionsWith(k).length ? "" : " · pas encore fait"}</option>`).join("")}</select></label>
     <div class="grid2">
@@ -819,6 +827,11 @@ function openSettings() {
       <label class="toggle" for="st-solid"><span><b>Réduire la transparence</b><small>Fonds pleins à la place de l’effet verre</small></span><input type="checkbox" role="switch" id="st-solid" ${DB.prefs.solid ? "checked" : ""}></label>
       <label class="toggle" for="st-sound"><span><b>Bip de fin de récup</b><small>Sur les 3 dernières secondes</small></span><input type="checkbox" role="switch" id="st-sound" ${DB.prefs.sound !== false ? "checked" : ""}></label>
     </div>
+    <div class="set-group">
+      <div class="eyebrow">Sauvegarde</div>
+      <p class="muted" style="font-size:14px;margin:4px 0 8px">Tes données sont seulement sur ce téléphone. Exporte-les chaque semaine : c’est ta sauvegarde, et le fichier à envoyer à Claude pour un bilan.${DB.lastExport ? " Dernière : " + frDate(DB.lastExport, { day: "numeric", month: "long" }) + "." : ""}</p>
+      <div class="grid2"><button class="btn btn-dark" type="button" data-act="export">Exporter</button><button class="btn" type="button" data-act="import">Importer</button></div>
+    </div>
     ${NATIVE ? "" : `<p class="muted" style="font-size:13px;margin:0">Les notifications fonctionnent dans l’appli Android.</p>`}`, "Réglages");
 }
 function onSettingChange(id, el) {
@@ -889,6 +902,48 @@ function setupGestures() {
   };
   stage.addEventListener("pointerup", end); stage.addEventListener("pointercancel", end);
   stage.addEventListener("click", ev => { if (Date.now() - (+stage.dataset.dragEnd || 0) < 350) { ev.stopPropagation(); ev.preventDefault(); } }, true);
+
+  // Glisser à gauche / droite sur l'accueil et les autres onglets : onglet suivant / précédent
+  const app = document.querySelector(".app");
+  let vs = null;
+  app.addEventListener("pointerdown", e => {
+    if (!$("session").hidden || SHEET) return;
+    if (e.target.closest("input, select, textarea, .tabs, .chart")) return;
+    vs = { id: e.pointerId, x0: e.clientX, y0: e.clientY, el: $("v-" + VIEW), dir: null, dx: 0, hist: [{ x: e.clientX, t: e.timeStamp }] };
+  });
+  app.addEventListener("pointermove", e => {
+    if (!vs || e.pointerId !== vs.id) return;
+    const dx = e.clientX - vs.x0, dy = e.clientY - vs.y0;
+    if (!vs.dir) {
+      if (Math.hypot(dx, dy) < 10) return;
+      vs.dir = Math.abs(dx) > Math.abs(dy) * 1.2 ? "x" : "y";
+      if (vs.dir !== "x") { vs = null; return; }
+      app.setPointerCapture(e.pointerId);
+      vs.el.style.transition = "none";
+    }
+    const W = app.clientWidth, i = VIEWS.indexOf(VIEW);
+    const blocked = (dx > 0 && i === 0) || (dx < 0 && i === VIEWS.length - 1);
+    const x = blocked ? Math.sign(dx) * rubber(Math.abs(dx), W) : dx;
+    vs.dx = x;
+    vs.el.style.transform = `translateX(${x}px)`;
+    vs.el.style.opacity = String(1 - Math.min(0.5, Math.abs(x) / W * 0.7));
+    vs.hist.push({ x: e.clientX, t: e.timeStamp }); if (vs.hist.length > 5) vs.hist.shift();
+  });
+  const vend = e => {
+    if (!vs || e.pointerId !== vs.id) return;
+    const s = vs; vs = null;
+    if (s.dir !== "x") return;
+    app.dataset.dragEnd = Date.now();
+    const W = app.clientWidth, v = velocityOf(s.hist, "x"), i = VIEWS.indexOf(VIEW), proj = s.dx + project(v, 0.99);
+    let dir = 0;
+    if (proj < -W * 0.28 && i < VIEWS.length - 1) dir = 1;
+    else if (proj > W * 0.28 && i > 0) dir = -1;
+    if (dir) { s.el.style.transform = ""; s.el.style.opacity = ""; vibrate(8); show(VIEWS[i + dir], dir > 0 ? "right" : "left"); }
+    else spring({ from: s.dx, to: 0, velocity: v, response: 0.28, onUpdate: x => { s.el.style.transform = `translateX(${x}px)`; s.el.style.opacity = String(1 - Math.min(0.5, Math.abs(x) / W * 0.7)); },
+      onDone: () => { s.el.style.transform = ""; s.el.style.opacity = ""; s.el.style.transition = ""; } });
+  };
+  app.addEventListener("pointerup", vend); app.addEventListener("pointercancel", vend);
+  app.addEventListener("click", ev => { if (Date.now() - (+app.dataset.dragEnd || 0) < 350) { ev.stopPropagation(); ev.preventDefault(); } }, true);
 
   // Tirer la barre du haut vers le bas : fermer la séance (elle reste en mémoire)
   const ses = $("session"), top = ses.querySelector(".s-top");
@@ -1015,12 +1070,13 @@ document.addEventListener("click", e => {
   const v = e.target.closest("[data-view]"); if (v) return show(v.dataset.view);
   const b = e.target.closest("[data-act]"); if (!b) return;
   const a = b.dataset.act;
-  if (a === "open") return openSession(b.dataset.day);
+  if (a === "open") { closeSheet(true); return openSession(b.dataset.day); }
   if (a === "ptab") { PTAB = b.dataset.day; return renderProgram(); }
   if (a === "export") return exportData();
   if (a === "import") return $("import-file").click();
   if (a === "del") { const id = b.dataset.id; if (ARMED === id) { ARMED = null; delete DB.body[id]; save(); } else ARMED = id; return renderBody(); }
   if (a === "settings") return openSettings();
+  if (a === "change") return openChange();
   if (a === "sheet-close") return closeSheet();
   if (a === "unswap") { delete DB.prefs.swaps[b.dataset.day + ":" + b.dataset.i]; save(); return renderProgram(); }
   if (!G) return;

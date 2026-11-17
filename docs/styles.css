@@ -324,3 +324,27 @@ html.solid .glass { background: var(--surface); -webkit-backdrop-filter: none; b
 .bm .bb { fill: var(--body); } .bm .mm { fill: var(--muscle); } .bm .mh { fill: var(--m1); } .bm .ms { fill: var(--m2); } .bm .mx { fill: var(--accent); }
 .bm .lb { fill: var(--muted); font: 600 8px "NotchText", Inter, sans-serif; letter-spacing: .08em; }
 .bm path { stroke: var(--body-line); stroke-width: .6; stroke-linejoin: round; }
+
+/* Glisser entre les onglets : le navigateur garde le défilement vertical */
+.app { touch-action: pan-y; }
+
+/* ---------- Accueil A · Focus ---------- */
+.hero-a { min-height: 460px; gap: 18px; border-radius: 28px; padding: 24px 22px 18px; }
+.hero-title { font-size: clamp(38px, 11vw, 48px); line-height: .92; }
+.week-dots { display: flex; align-items: center; gap: 5px; }
+.week-dots span { margin-left: 6px; font-size: 14px; font-weight: 600; }
+.dot-d { width: 10px; height: 10px; border-radius: 5px; background: rgba(255,255,255,.15); }
+.dot-d.plan { background: rgba(255,255,255,.42); }
+.dot-d.done { background: #FFFFFF; }
+.dot-d.now { height: 20px; }
+.hero-tip { margin-top: auto; background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.22); border-radius: 18px; padding: 12px 14px; display: flex; flex-direction: column; gap: 3px; font-size: 15px; line-height: 1.4; }
+.hero-link { border: none; background: none; color: rgba(255,255,255,.88); font-size: 14px; font-weight: 600; padding: 6px; min-height: 40px; }
+.list { padding: 0; display: flex; flex-direction: column; overflow: hidden; }
+.list-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border: none; background: none; text-align: left; border-bottom: 1px solid var(--line); min-height: 64px; color: var(--ink); transition: background-color 160ms ease; }
+.list-row:last-child { border-bottom: none; }
+.list-row:active { background: var(--soft); }
+.list-row span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.list-row small { font-size: 12px; color: var(--muted); font-weight: 600; }
+.list-row b { font-size: 16px; }
+.list-row svg { color: var(--muted); flex: none; }
+.list-row.warn b { color: var(--warn); }
