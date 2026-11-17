@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Notch</title>
+  <meta name="description" content="Notch : ton coach de musculation. Monte d'un cran.">
+  <meta name="theme-color" content="#F4F5F7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0A0B0D" media="(prefers-color-scheme: dark)">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&family=Inter:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="app">
+    <section class="view" id="v-accueil"></section>
+    <section class="view" id="v-programme" hidden></section>
+    <section class="view" id="v-progres" hidden></section>
+    <section class="view" id="v-seche" hidden></section>
+  </main>
+
+  <nav class="tabbar" aria-label="Navigation">
+    <div class="tabbar-in">
+      <button class="tb" type="button" data-view="accueil"><svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>Accueil</button>
+      <button class="tb" type="button" data-view="programme"><svg viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>Programme</button>
+      <button class="tb" type="button" data-view="progres"><svg viewBox="0 0 24 24"><path d="M3 20h18M5 16l4-5 4 3 6-8"/></svg>Progrès</button>
+      <button class="tb" type="button" data-view="seche"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M8 10a4 4 0 0 1 8 0M12 10l2-2"/></svg>Sèche</button>
+    </div>
+  </nav>
+
+  <div class="session" id="session" hidden>
+    <div class="s-top">
+      <div class="row">
+        <button type="button" id="s-quit">Quitter</button>
+        <span id="s-count"></span>
+      </div>
+      <div class="segs" id="s-segs"></div>
+    </div>
+    <div class="stage" id="stage"></div>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+  <input type="file" id="import-file" accept="application/json,.json" hidden>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+    }
+  </script>
+</body>
+</html>
