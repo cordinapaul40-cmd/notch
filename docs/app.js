@@ -31,7 +31,39 @@ const vibrate = p => {
   if (NATIVE) return native("vibrate", Array.isArray(p) ? p.join(",") : String(p));
   try { navigator.vibrate && navigator.vibrate(p); } catch (e) {}
 };
-const ARROW = `<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const REDUCED = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+// ---------- Ressort (Apple : amortissement + réponse) ----------
+// Part de la valeur actuelle et de la vitesse du doigt : le mouvement peut être rattrapé à tout moment.
+function spring({ from, to, velocity = 0, response = 0.35, damping = 1, onUpdate, onDone }) {
+  if (REDUCED) { onUpdate(to); onDone && onDone(); return { stop() {} }; }
+  const k = Math.pow(2 * Math.PI / response, 2), c = 4 * Math.PI * damping / response;
+  let x = from, v = velocity, last = performance.now(), id = 0, stopped = false;
+  const step = now => {
+    if (stopped) return;
+    const dt = Math.min(0.032, (now - last) / 1000); last = now;
+    for (let i = 0; i < 4; i++) { const h = dt / 4, a = -k * (x - to) - c * v; v += a * h; x += v * h; }
+    if (Math.abs(x - to) < 0.5 && Math.abs(v) < 8) { onUpdate(to); onDone && onDone(); return; }
+    onUpdate(x); id = requestAnimationFrame(step);
+  };
+  id = requestAnimationFrame(step);
+  return { stop() { stopped = true; cancelAnimationFrame(id); } };
+}
+// Où le geste « veut » aller, comme le défilement d'iOS
+const project = (v, rate = 0.998) => (v / 1000) * rate / (1 - rate);
+// Résistance progressive au-delà d'un bord
+const rubber = (over, dim, c = 0.55) => (over * dim * c) / (dim + c * Math.abs(over));
+// Vitesse (px/s) à partir des derniers points du doigt
+function velocityOf(hist, axis) {
+  if (hist.length < 2) return 0;
+  const a = hist[0], b = hist[hist.length - 1], dt = b.t - a.t;
+  return dt > 0 ? (b[axis] - a[axis]) / dt * 1000 : 0;
+}
+
+// ---------- Annonces pour TalkBack ----------
+function announce(msg) { const sr = $("sr"); if (!sr) return; sr.textContent = ""; setTimeout(() => sr.textContent = msg, 30); }
+
+const ARROW =`<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const LOGO = (size, bg, fg) => `<svg width="${size}" height="${size}" viewBox="0 0 64 64" role="img" aria-label="Notch"><rect width="64" height="64" rx="16" fill="${bg}"/><path d="M14 44 H26 V34 H38 V24 H50" fill="none" stroke="${fg}" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
 // ---------- Données (sur le téléphone) ----------
@@ -40,8 +72,14 @@ let DB = { logs: {}, body: {}, lastExport: null, prefs: { swaps: {} } };
 function load() {
   try {
     const o = JSON.parse(localStorage.getItem(KEY) || "{}");
-    DB = { logs: o.logs || {}, body: o.body || {}, lastExport: o.lastExport || null, prefs: Object.assign({ swaps: {} }, o.prefs || {}) };
+    DB = { logs: o.logs || {}, body: o.body || {}, lastExport: o.lastExport || null, prefs: Object.assign({}, DEFAULT_PREFS, o.prefs || {}) };
   } catch (e) {}
+  DB.prefs.notif = Object.assign({}, DEFAULT_PREFS.notif, DB.prefs.notif || {});
+}
+const DEFAULT_PREFS = { swaps: {}, sound: true, solid: false, notif: { session: true, time: "17:30", weekly: true } };
+function applyPrefs() {
+  document.documentElement.classList.toggle("solid", !!DB.prefs.solid);
+  native("setReminders", JSON.stringify(DB.prefs.notif));
 }
 function save() {
   try { localStorage.setItem(KEY, JSON.stringify(DB)); } catch (e) { toast("Impossible d’enregistrer : stockage du téléphone plein"); }
@@ -103,50 +141,28 @@ function programKeys() {
 const hasSets = l => Object.values(l.ex || {}).some(a => doneSets(a).length);
 
 // ---------- Silhouette musculaire ----------
-const BASE = [
-  { e: "circle", a: { cx: 50, cy: 16, r: 9 } }, { e: "rect", a: { x: 45.5, y: 23, width: 9, height: 9, rx: 2 } },
-  { e: "path", a: { d: "M33 33 Q50 29 67 33 L69 60 Q67 90 63 102 L37 102 Q33 90 31 60 Z" } },
-  { e: "path", a: { d: "M37 100 L63 100 L65 116 Q50 121 35 116 Z" } },
-  { e: "ellipse", s: 1, a: { cx: 30, cy: 41, rx: 7, ry: 7.5 } },
-  { e: "ellipse", s: 1, a: { cx: 24, cy: 59, rx: 5.5, ry: 13 }, t: "rotate(12 24 59)" },
-  { e: "ellipse", s: 1, a: { cx: 19.5, cy: 85, rx: 4.6, ry: 12.5 }, t: "rotate(8 19.5 85)" },
-  { e: "circle", s: 1, a: { cx: 17, cy: 101, r: 3.6 } },
-  { e: "ellipse", s: 1, a: { cx: 41, cy: 137, rx: 9, ry: 22 } }, { e: "ellipse", s: 1, a: { cx: 41, cy: 177, rx: 6, ry: 17 } }, { e: "ellipse", s: 1, a: { cx: 41, cy: 197, rx: 6.2, ry: 3 } }
-];
-const FRONT = [
-  { g: "deltsF", e: "ellipse", s: 1, a: { cx: 30, cy: 41, rx: 6, ry: 6.5 } },
-  { g: "pecs", e: "path", s: 1, a: { d: "M49.5 38 C42 36 35 37 32.5 43 C32.5 52 36 57 42 57 C46 57 49.5 55 49.5 52 Z" } },
-  { g: "biceps", e: "ellipse", s: 1, a: { cx: 24.5, cy: 58, rx: 4, ry: 9.5 }, t: "rotate(12 24.5 58)" },
-  { g: "forearms", e: "ellipse", s: 1, a: { cx: 19.8, cy: 83, rx: 3.4, ry: 9.5 }, t: "rotate(8 19.8 83)" },
-  { g: "abs", e: "rect", a: { x: 44, y: 60, width: 12, height: 34, rx: 4 } },
-  { g: "obliques", e: "ellipse", s: 1, a: { cx: 37.5, cy: 79, rx: 3.5, ry: 10 } },
-  { g: "quads", e: "ellipse", s: 1, a: { cx: 41.5, cy: 135, rx: 7.2, ry: 18 } }
-];
-const BACK = [
-  { g: "midback", e: "path", a: { d: "M45.5 44 L54.5 44 L54.5 64 L50 68 L45.5 64 Z" } },
-  { g: "traps", e: "path", a: { d: "M44 27 L56 27 L65 37 L56 44 L50 47 L44 44 L35 37 Z" } },
-  { g: "deltsR", e: "ellipse", s: 1, a: { cx: 30, cy: 41, rx: 6, ry: 6.5 } },
-  { g: "lats", e: "path", s: 1, a: { d: "M45 50 C40 47 35 46 32.5 50 C31.5 62 34 75 40.5 86 L45 79 Z" } },
-  { g: "lowerback", e: "rect", a: { x: 45, y: 71, width: 10, height: 24, rx: 3 } },
-  { g: "triceps", e: "ellipse", s: 1, a: { cx: 24.5, cy: 59, rx: 4, ry: 10 }, t: "rotate(12 24.5 59)" },
-  { g: "forearms", e: "ellipse", s: 1, a: { cx: 19.8, cy: 83, rx: 3.4, ry: 9.5 }, t: "rotate(8 19.8 83)" },
-  { g: "glutes", e: "ellipse", s: 1, a: { cx: 43, cy: 108, rx: 6.8, ry: 8 } },
-  { g: "hamstrings", e: "ellipse", s: 1, a: { cx: 41.5, cy: 139, rx: 7, ry: 16 } },
-  { g: "calves", e: "ellipse", s: 1, a: { cx: 41, cy: 171, rx: 5, ry: 11 } }
-];
-function shape(sh, cls) {
-  const at = Object.entries(sh.a).map(([k, v]) => `${k}="${v}"`).join(" ");
-  let o = `<${sh.e} class="${cls}" ${at}${sh.t ? ` transform="${sh.t}"` : ""}/>`;
-  if (sh.s) o += `<${sh.e} class="${cls}" ${at} transform="translate(100 0) scale(-1 1)${sh.t ? " " + sh.t : ""}"/>`;
+// mode « exercice » : principal en bleu plein, secondaire en bleu clair
+// mode « chaleur » : chaque muscle plus ou moins bleu selon le volume de la semaine
+const MIRROR = "translate(100 0) scale(-1 1)";
+function figure(list, fillOf) {
+  let o = `<path class="bb" d="${BODY.outline}"/><path class="bb" d="${BODY.outline}" transform="${MIRROR}"/>`;
+  list.forEach(m => {
+    const f = fillOf(m.g);
+    o += `<path ${f} d="${m.d}"/>` + (m.s ? `<path ${f} d="${m.d}" transform="${MIRROR}"/>` : "");
+  });
   return o;
 }
-function fig(list, p, s) { return BASE.map(b => shape(b, "bb")).join("") + list.map(m => shape(m, p.includes(m.g) ? "mh" : (s.includes(m.g) ? "ms" : "mm"))).join(""); }
+function svgBody(fillOf, label) {
+  return `<svg class="bm" viewBox="0 0 220 218" role="img" aria-label="${esc(label)}">
+    <g>${figure(BODY.front, fillOf)}</g><g transform="translate(120 0)">${figure(BODY.back, fillOf)}</g>
+    <text class="lb" x="50" y="216" text-anchor="middle">FACE</text><text class="lb" x="170" y="216" text-anchor="middle">DOS</text></svg>`;
+}
 function bodyMap(k) {
   const L = LIB[k];
-  return `<svg viewBox="0 0 220 216" role="img" aria-label="Muscles travaillés : ${esc(L.p.map(g => MUSCLES[g]).join(", "))}">
-    <style>.bb{fill:var(--body)}.mm{fill:var(--muscle)}.mh{fill:var(--m1)}.ms{fill:var(--m2)}.lb{fill:var(--muted);font:600 8px Inter,sans-serif;letter-spacing:.06em}</style>
-    <g>${fig(FRONT, L.p, L.s)}</g><g transform="translate(120 0)">${fig(BACK, L.p, L.s)}</g>
-    <text class="lb" x="50" y="213" text-anchor="middle">FACE</text><text class="lb" x="170" y="213" text-anchor="middle">DOS</text></svg>`;
+  return svgBody(g => `class="${L.p.includes(g) ? "mh" : (L.s.includes(g) ? "ms" : "mm")}"`, "Muscles travaillés : " + L.p.map(g => MUSCLES[g]).join(", "));
+}
+function heatMap(lv) {
+  return svgBody(g => (lv[g] || 0) > 0 ? `class="mx" fill-opacity="${(0.18 + 0.82 * lv[g]).toFixed(2)}"` : `class="mm"`, "Muscles travaillés cette semaine");
 }
 
 // ---------- Graphique ----------
@@ -220,7 +236,7 @@ function renderHome() {
         <div class="eyebrow">${esc(new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" }))}</div>
         <h1 class="d h1">${hour >= 18 ? "Bonsoir" : "Salut"} Paul</h1>
       </div>
-      ${LOGO(42, "var(--accent)", "#FFFFFF")}
+      <button class="icon-btn glass" type="button" data-act="settings" aria-label="Réglages"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
     </div>
 
     <div class="stack">
@@ -237,6 +253,8 @@ function renderHome() {
       ${finished && !active ? `<div class="done-msg">Séance faite aujourd’hui. Bien joué.</div>`
         : `<button class="btn-go" type="button" data-act="open" data-day="${d.id}">${active ? "Reprendre" : "Commencer"} ${ARROW}</button>`}
     </div>
+
+    ${heatCard()}
 
     <div class="stack">
       <div class="row"><h2 class="d up h2">Le coach</h2></div>
@@ -259,6 +277,38 @@ function renderHome() {
       <p class="muted" style="margin:0;font-size:14px">Tes ${nbSessions} séance${nbSessions > 1 ? "s" : ""} et tes mesures sont seulement sur ce téléphone. Exporte-les chaque semaine : c’est ta sauvegarde, et c’est le fichier à m’envoyer pour faire tes bilans.</p>
       <div class="grid2"><button class="btn btn-dark" type="button" data-act="export">Exporter</button><button class="btn" type="button" data-act="import">Importer</button></div>
     </div>`;
+}
+
+// ---------- Carte de chaleur des muscles ----------
+// Une série compte 1 pour les muscles principaux et 0,5 pour les muscles en soutien.
+function weekHeat() {
+  const mon = mondayKey(), raw = {};
+  Object.values(DB.logs).filter(l => l.date >= mon).forEach(l => Object.entries(l.ex || {}).forEach(([k, arr]) => {
+    const n = doneSets(arr).length; if (!n || !LIB[k]) return;
+    LIB[k].p.forEach(g => raw[g] = (raw[g] || 0) + n);
+    LIB[k].s.forEach(g => raw[g] = (raw[g] || 0) + n * 0.5);
+  }));
+  const max = Math.max(0, ...Object.values(raw)), lv = {};
+  Object.keys(MUSCLES).forEach(g => lv[g] = max ? Math.round((raw[g] || 0) / max * 100) / 100 : 0);
+  // Le muscle du programme le moins travaillé cette semaine
+  const targeted = new Set(); DAYS.forEach(d => exList(d.id).forEach(x => LIB[x.k].p.forEach(g => targeted.add(g))));
+  let weak = null;
+  if (max) [...targeted].forEach(g => { if (!weak || (raw[g] || 0) < (raw[weak] || 0)) weak = g; });
+  return { lv, raw, weak, any: max > 0 };
+}
+function heatCard() {
+  const h = weekHeat();
+  return `<div class="card heat">
+    <div class="row"><h2 class="d up h2">Muscles de la semaine</h2></div>
+    <div class="heat-body">
+      <div class="heat-map">${heatMap(h.lv)}</div>
+      <div class="stack" style="gap:12px">
+        ${h.any ? `<div><div class="eyebrow">À travailler</div><b class="d up" style="font-size:20px">${esc(MUSCLES[h.weak])}</b><div class="muted" style="font-size:13px">${fmtN(h.raw[h.weak] || 0)} série${(h.raw[h.weak] || 0) > 1 ? "s" : ""} cette semaine</div></div>`
+          : `<div class="muted" style="font-size:14px">Pas encore de séance cette semaine. La silhouette se colore à chaque série validée.</div>`}
+        <div class="heat-scale" aria-hidden="true"><span>Peu</span><i></i><span>Beaucoup</span></div>
+      </div>
+    </div>
+  </div>`;
 }
 
 // ---------- Programme ----------
@@ -360,6 +410,7 @@ function renderBody() {
 // ============================================================
 let actx = null, wake = null, timer = null, lastSec = null;
 function beep(freq = 880, dur = 0.16, vol = 0.25) {
+  if (DB.prefs.sound === false) return;
   try {
     if (!actx) return; if (actx.state === "suspended") actx.resume();
     const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime;
@@ -411,15 +462,18 @@ function openSession(dayId) {
 }
 function closeSession() {
   clearInterval(timer); timer = null;
-  $("session").hidden = true; document.body.style.overflow = "";
+  closeSheet(true);
+  const ses = $("session"); ses.style.transform = ""; ses.style.transition = "";
+  ses.hidden = true; document.body.style.overflow = "";
   $("stage").innerHTML = ""; unlockScreen(); render();
 }
 
 // Transition entre deux écrans
-function transition(html, extra = "") {
+// from : "right" / "left" quand on change d'exercice en glissant (le nouvel écran arrive du côté du geste)
+function transition(html, extra = "", from = null) {
   const stage = $("stage"), old = stage.querySelector(".screen:not(.leave)");
   const el = document.createElement("div");
-  el.className = "screen enter " + extra; el.innerHTML = `<div class="in">${html}</div>`;
+  el.className = "screen enter " + extra + (from ? " from-" + from : ""); el.innerHTML = `<div class="in">${html}</div>`;
   stage.appendChild(el);
   void el.offsetHeight; el.classList.remove("enter");
   if (old) { old.classList.add("leave"); setTimeout(() => old.remove(), 220); }
@@ -429,30 +483,27 @@ function topbar(label) {
   $("s-count").textContent = label;
   $("s-segs").innerHTML = exs().map((x, i) => `<button type="button" data-act="jump" data-i="${i}" aria-label="Exercice ${i + 1} : ${esc(LIB[x.k].n)}" class="${firstPending(x) < 0 ? "done" : (i === G.ex && G.screen !== "done" ? "cur" : "")}"></button>`).join("");
 }
-function goto(screen) {
+function goto(screen, from = null) {
   G.screen = screen; saveG();
-  if (screen === "intro") screenIntro();
+  if (screen === "intro") screenIntro(from);
   else if (screen === "set") screenSet();
-  else if (screen === "swap") screenSwap();
   else if (screen === "done") screenDone();
 }
 
-// Écran : choisir une variante
-function screenSwap() {
+// Panneau : choisir une variante
+function openVariants() {
   const x = curX(), done = doneSets(setsOf(x)).length > 0;
   const options = [x.base, ...(ALT[x.base] || [])];
-  topbar("Remplacer l’exercice");
-  transition(`
-    <div class="stack" style="gap:6px"><div class="eyebrow">À la place de ${esc(LIB[x.base].n)}</div><h1 class="d s-title">Variantes</h1></div>
+  openSheet(`
+    <div class="stack" style="gap:4px"><div class="eyebrow">À la place de ${esc(LIB[x.base].n)}</div><h2 class="d up h2">Variantes</h2></div>
     ${done ? `<div class="verdict bad">Tu as déjà fait des séries sur cet exercice aujourd’hui. Termine-le, ou change à la prochaine séance.</div>` : ""}
     <div class="stack" style="gap:10px">${options.map(k => {
       const L = LIB[k], last = sessionsWith(k, G.docId)[0], cur = k === x.k;
-      return `<button type="button" class="card option${cur ? " cur" : ""}" data-act="pick" data-k="${k}" ${done ? "disabled" : ""}>
+      return `<button type="button" class="option${cur ? " cur" : ""}" data-act="pick" data-k="${k}" ${done ? "disabled" : ""}>
         <span class="row"><b class="d up" style="font-size:17px;text-align:left">${esc(L.n)}</b>${cur ? `<span class="chip depart">Actuel</span>` : (k === x.base ? `<span class="chip garde">Programme</span>` : "")}</span>
         <span class="muted" style="font-size:13px;text-align:left;display:block">${esc(L.p.map(g => MUSCLES[g]).join(", "))}${last ? " · dernière fois " + last.sets.map(s => isPdc(k) ? s.r : `${s.r} × ${fmtN(s.w)}`).slice(0, 2).join(", ") : " · jamais fait"}</span>
       </button>`; }).join("")}</div>
-    <label class="keep"><input type="checkbox" id="keep-swap"> Garder ce choix pour les prochaines séances</label>
-    <div class="push"><button class="btn" type="button" data-act="intro">Annuler</button></div>`);
+    <label class="keep"><input type="checkbox" id="keep-swap"> Garder ce choix pour les prochaines séances</label>`, "Variantes de l’exercice");
 }
 function pickSwap(k) {
   const x = curX(), keep = $("keep-swap") && $("keep-swap").checked;
@@ -461,12 +512,12 @@ function pickSwap(k) {
   const pk = G.dayId + ":" + G.ex;
   if (keep) { if (k === x.base) delete DB.prefs.swaps[pk]; else DB.prefs.swaps[pk] = k; }
   save(); G.set = Math.max(0, firstPending(curX()));
-  if (k !== x.k) toast(`${LIB[k].n} à la place de ${LIB[x.k].n}`);
-  goto("intro");
+  closeSheet();
+  if (k !== x.k) { toast(`${LIB[k].n} à la place de ${LIB[x.k].n}`); goto("intro"); }
 }
 
 // Écran 1 : présentation de l'exercice
-function screenIntro() {
+function screenIntro(from = null) {
   const x = curX(), L = LIB[x.k], c = coach(x, G.docId);
   topbar(`Exercice ${G.ex + 1} sur ${exs().length}`);
   const canSwap = (ALT[x.base] || []).length > 0;
@@ -491,7 +542,7 @@ function screenIntro() {
     <div class="push">
       <a class="link" style="text-align:center" href="https://www.youtube.com/results?search_query=${encodeURIComponent(L.q)}" target="_blank" rel="noopener">Voir une démo vidéo</a>
       <button class="btn-main" type="button" data-act="begin">C’est parti ${ARROW}</button>
-    </div>`);
+    </div>`, "", from);
 }
 
 // Valeurs proposées pour une série
@@ -548,7 +599,7 @@ function validate() {
   arr[j] = { w, r };
   for (let i = 0; i < arr.length; i++) if (arr[i] === undefined) arr[i] = null;
   save(); vibrate(25);
-  if (best && e1rm({ w, r }) > best.v + 0.01) toast("Nouveau record sur cet exercice", true);
+  if (best && e1rm({ w, r }) > best.v + 0.01) celebrate(L.n, isPdc(x.k) ? `${r} répétitions` : `${fmtN(w)} kg × ${r}`);
   const next = firstPending(x);
   if (wasEdit) { if (next >= 0) { G.set = next; return goto("set"); } return afterExercise(); }
   if (next >= 0) return startRest(x.rest, { screen: "set", ex: G.ex, set: next });
@@ -584,13 +635,13 @@ function screenRest(resumed) {
     <div class="rest-label" id="r-label" style="margin-top:12px">Récupération</div>
     <div class="rest-wrap shake-host">
       <div class="glow"></div>
-      <svg class="ring" viewBox="0 0 320 320" aria-hidden="true"><circle class="tr" cx="160" cy="160" r="140"/><circle class="pr" id="r-ring" cx="160" cy="160" r="140" stroke-dasharray="879.65" stroke-dashoffset="0"/></svg>
+      <svg class="ring" viewBox="0 0 320 320" aria-hidden="true"><defs><linearGradient id="rg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="var(--accent-2)"/><stop offset="1" stop-color="var(--accent)"/></linearGradient></defs><circle class="tr" cx="160" cy="160" r="140"/><circle class="pr" id="r-ring" cx="160" cy="160" r="140" stroke-dasharray="879.65" stroke-dashoffset="0"/></svg>
       <div class="rest-num"><span class="grow"><span class="shake"><span class="t d num" id="r-time" role="timer">${mmss(Math.max(0, Math.ceil((G.restEnd - Date.now()) / 1000)))}</span></span></span><span class="muted" style="font-size:14px">sur ${mmss(G.restTotal)}</span></div>
     </div>
-    <div class="card next"><div class="eyebrow">Ensuite</div><div style="font-size:17px;font-weight:600;margin-top:2px">${esc(restNextText(G.after))}</div></div>
+    <div class="card next glass"><div class="eyebrow">Ensuite</div><div style="font-size:17px;font-weight:600;margin-top:2px">${esc(restNextText(G.after))}</div></div>
     <div class="push"><div class="rest-btns">
-      <button class="btn" type="button" data-act="plus">+15 secondes</button>
-      <button class="btn btn-dark" type="button" data-act="skip">Passer</button></div></div>`, "rest zoom");
+      <button class="btn glass" type="button" data-act="plus">+15 secondes</button>
+      <button class="btn btn-dark" type="button" data-act="skip">Passer</button></div></div>`, "rest zoom rest-bg");
   el.querySelector(".in").classList.add("rest");
   lastSec = null;
   clearInterval(timer); timer = setInterval(() => tick(el), 200); tick(el);
@@ -608,12 +659,13 @@ function tick(el) {
   else if (left > 10) lab.textContent = "Récupération";
   if (left !== lastSec) {
     if (urgent && lastSec !== null) { vibrate(70); if (left <= 3) beep(660, 0.12, 0.2); }
+    if (left === 10) announce("10 secondes");
     lastSec = left;
   }
   if (left === 0) {
     clearInterval(timer); timer = null;
     el.classList.remove("urgent"); el.classList.add("go"); lab.textContent = "C’est reparti";
-    vibrate([300, 120, 300]); beep(990, 0.3, 0.3);
+    vibrate([300, 120, 300]); beep(990, 0.3, 0.3); announce("C’est reparti");
     setTimeout(() => { if (G && G.screen === "rest") proceed(); }, 900);
   }
 }
@@ -643,13 +695,234 @@ function screenDone() {
   transition(`
     <div class="stack" style="gap:6px;margin-top:12px"><div class="eyebrow">${esc(d.title)}</div><h1 class="d s-title">Séance terminée</h1></div>
     <div class="grid2">
-      <div class="tile"><span class="k">Séries</span><span class="v">${sets}<small> / ${total}</small></span></div>
-      <div class="tile"><span class="k">Durée</span><span class="v">${mins != null && mins < 300 ? mins + "<small> min</small>" : "—"}</span></div>
+      <div class="tile"><span class="k">Séries</span><span class="v"><span data-count="${sets}">${sets}</span><small> / ${total}</small></span></div>
+      <div class="tile"><span class="k">Durée</span><span class="v">${mins != null && mins < 300 ? `<span data-count="${mins}">${mins}</span><small> min</small>` : "—"}</span></div>
     </div>
-    <div class="tile"><span class="k">Volume soulevé</span><span class="v">${Math.round(vol).toLocaleString("fr-FR")}<small> kg</small></span><span class="s">charge × répétitions, toutes séries confondues</span></div>
+    <div class="tile"><span class="k">Volume soulevé</span><span class="v"><span data-count="${Math.round(vol)}">${Math.round(vol).toLocaleString("fr-FR")}</span><small> kg</small></span><span class="s">charge × répétitions, toutes séries confondues</span></div>
     ${recs.length ? `<div class="card coach"><b>${recs.length} record${recs.length > 1 ? "s" : ""} battu${recs.length > 1 ? "s" : ""}</b><span class="chip record">Record</span><p>${recs.map(esc).join("<br>")}</p></div>` : ""}
     <div class="card coach"><b>Cardio</b><span class="chip depart">Ensuite</span><p>${esc(d.cardio)}</p></div>
-    <div class="push"><button class="btn-main" type="button" data-act="home">Retour à l’accueil</button></div>`);
+    <div class="push"><button class="btn-main" type="button" data-act="home">Retour à l’accueil</button></div>`, "done-bg");
+  countUp($("stage"));
+}
+
+// Les chiffres du bilan défilent jusqu'à leur valeur (moment rare : une fois par séance)
+function countUp(root) {
+  if (REDUCED) return;
+  root.querySelectorAll("[data-count]").forEach(el => {
+    const to = +el.dataset.count, t0 = performance.now(), dur = 900;
+    const step = now => {
+      const p = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - p, 3);
+      el.textContent = Math.round(to * e).toLocaleString("fr-FR");
+      if (p < 1) requestAnimationFrame(step);
+    };
+    el.textContent = "0"; requestAnimationFrame(step);
+  });
+}
+
+// Record battu : la marche Notch se dessine et monte d'un cran
+function celebrate(exName, value) {
+  vibrate([20, 50, 20, 50, 120]);
+  announce(`Nouveau record : ${exName}, ${value}`);
+  const el = document.createElement("div");
+  el.className = "celebrate"; el.setAttribute("role", "status");
+  el.innerHTML = `<div class="cel-card glass">
+    <svg viewBox="0 0 64 64" width="88" height="88" aria-hidden="true"><rect width="64" height="64" rx="16" fill="var(--accent)"/><path class="draw" pathLength="1" d="M14 44 H26 V34 H38 V24 H50" fill="none" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <div class="eyebrow" style="color:var(--accent)">Nouveau record</div>
+    <div class="d up" style="font-size:26px;line-height:1">${esc(value)}</div>
+    <div class="muted" style="font-size:14px">${esc(exName)}</div></div>`;
+  document.body.appendChild(el);
+  requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add("on")));
+  const close = () => { el.classList.remove("on"); el.classList.add("off"); setTimeout(() => el.remove(), 300); };
+  el.addEventListener("click", close);
+  setTimeout(close, 2200);
+}
+
+// ============================================================
+//  Panneaux qui montent du bas (variantes, réglages)
+//  Ouverture et fermeture à la façon iOS ; on les referme en les tirant vers le bas.
+// ============================================================
+let SHEET = null;
+function openSheet(html, label) {
+  closeSheet(true);
+  const wrap = document.createElement("div");
+  wrap.className = "sheet-wrap";
+  wrap.innerHTML = `<div class="scrim" data-act="sheet-close"></div>
+    <div class="sheet glass" role="dialog" aria-modal="true" aria-label="${esc(label)}">
+      <div class="grabber" aria-hidden="true"></div>
+      <div class="sheet-in">${html}</div>
+    </div>`;
+  document.body.appendChild(wrap);
+  SHEET = { wrap, sheet: wrap.querySelector(".sheet"), scrim: wrap.querySelector(".scrim"), dragEnd: 0 };
+  sheetDrag(SHEET);
+  requestAnimationFrame(() => requestAnimationFrame(() => wrap.classList.add("open")));
+}
+function closeSheet(instant) {
+  if (!SHEET) return;
+  const s = SHEET; SHEET = null;
+  if (instant) { s.wrap.remove(); return; }
+  s.sheet.style.transform = ""; s.scrim.style.opacity = "";
+  s.wrap.classList.remove("open"); s.wrap.classList.add("closing");
+  setTimeout(() => s.wrap.remove(), 340);
+}
+function sheetDrag(S) {
+  const el = S.sheet;
+  let st = null;
+  el.addEventListener("click", ev => { if (Date.now() - S.dragEnd < 350) { ev.stopPropagation(); ev.preventDefault(); } }, true);
+  el.addEventListener("pointerdown", e => {
+    if (e.target.closest("input[type=time]")) return;
+    st = { id: e.pointerId, x0: e.clientX, y0: e.clientY, hist: [{ y: e.clientY, t: e.timeStamp }], dir: null, dy: 0 };
+  });
+  el.addEventListener("pointermove", e => {
+    if (!st || e.pointerId !== st.id) return;
+    const dx = e.clientX - st.x0, dy = e.clientY - st.y0;
+    if (!st.dir) {
+      if (Math.hypot(dx, dy) < 10) return;
+      const inner = el.querySelector(".sheet-in");
+      st.dir = Math.abs(dy) > Math.abs(dx) && dy > 0 && inner.scrollTop <= 0 ? "y" : "n";
+      if (st.dir !== "y") { st = null; return; }
+      el.setPointerCapture(e.pointerId);
+      el.style.transition = "none"; S.scrim.style.transition = "none";
+    }
+    const h = el.offsetHeight, y = dy > 0 ? dy : -rubber(-dy, h) * 0.3;
+    st.dy = y;
+    el.style.transform = `translateY(${y}px)`;
+    S.scrim.style.opacity = String(Math.max(0, 1 - y / h));
+    st.hist.push({ y: e.clientY, t: e.timeStamp }); if (st.hist.length > 5) st.hist.shift();
+  });
+  const end = e => {
+    if (!st || e.pointerId !== st.id) return;
+    const s = st; st = null;
+    if (s.dir !== "y") return;
+    S.dragEnd = Date.now();
+    const v = velocityOf(s.hist, "y"), h = el.offsetHeight;
+    el.style.transition = ""; S.scrim.style.transition = "";
+    // Fermeture à la distance OU à la vitesse : un petit geste rapide suffit
+    if (s.dy + project(v, 0.99) > h * 0.4 || v > 700) closeSheet();
+    else { el.style.transform = ""; S.scrim.style.opacity = ""; }
+  };
+  el.addEventListener("pointerup", end); el.addEventListener("pointercancel", end);
+}
+
+// ---------- Réglages ----------
+function openSettings() {
+  const n = DB.prefs.notif;
+  openSheet(`
+    <h2 class="d up h2">Réglages</h2>
+    <div class="set-group">
+      <div class="eyebrow">Notifications</div>
+      <label class="toggle" for="st-session"><span><b>Rappel de séance</b><small>Les jours d’entraînement, si la séance n’est pas faite</small></span><input type="checkbox" role="switch" id="st-session" ${n.session ? "checked" : ""}></label>
+      <label class="toggle" for="st-time"><span><b>Heure du rappel</b></span><input type="time" id="st-time" value="${esc(n.time)}"></label>
+      <label class="toggle" for="st-weekly"><span><b>Bilan du dimanche</b><small>Dimanche à 19 h : séances, records, muscle à travailler</small></span><input type="checkbox" role="switch" id="st-weekly" ${n.weekly ? "checked" : ""}></label>
+    </div>
+    <div class="set-group">
+      <div class="eyebrow">Affichage et son</div>
+      <label class="toggle" for="st-solid"><span><b>Réduire la transparence</b><small>Fonds pleins à la place de l’effet verre</small></span><input type="checkbox" role="switch" id="st-solid" ${DB.prefs.solid ? "checked" : ""}></label>
+      <label class="toggle" for="st-sound"><span><b>Bip de fin de récup</b><small>Sur les 3 dernières secondes</small></span><input type="checkbox" role="switch" id="st-sound" ${DB.prefs.sound !== false ? "checked" : ""}></label>
+    </div>
+    ${NATIVE ? "" : `<p class="muted" style="font-size:13px;margin:0">Les notifications fonctionnent dans l’appli Android.</p>`}`, "Réglages");
+}
+function onSettingChange(id, el) {
+  const n = DB.prefs.notif;
+  if (id === "st-session") n.session = el.checked;
+  else if (id === "st-time" && el.value) n.time = el.value;
+  else if (id === "st-weekly") n.weekly = el.checked;
+  else if (id === "st-solid") DB.prefs.solid = el.checked;
+  else if (id === "st-sound") DB.prefs.sound = el.checked;
+  save(); applyPrefs(); vibrate(8);
+}
+
+// ============================================================
+//  Gestes pendant la séance
+// ============================================================
+// Glisser à gauche / droite : exercice suivant / précédent (sur les écrans exercice et série)
+function swipeTo(idx, from) {
+  clearInterval(timer); timer = null; native("cancelRest");
+  delete G.restEnd; delete G.after;
+  G.ex = idx; G.set = Math.max(0, firstPending(curX()));
+  vibrate(10);
+  goto("intro", from);
+}
+function setupGestures() {
+  const stage = $("stage");
+  let st = null;
+  stage.addEventListener("pointerdown", e => {
+    if (!G || !["intro", "set"].includes(G.screen) || SHEET) return;
+    if (e.target.closest("input, .stepper, .sets, .swap-btn")) return;
+    const el = stage.querySelector(".screen:not(.leave)"); if (!el) return;
+    st = { id: e.pointerId, x0: e.clientX, y0: e.clientY, el, dir: null, dx: 0, hist: [{ x: e.clientX, t: e.timeStamp }] };
+  });
+  stage.addEventListener("pointermove", e => {
+    if (!st || e.pointerId !== st.id) return;
+    const dx = e.clientX - st.x0, dy = e.clientY - st.y0;
+    if (!st.dir) {
+      if (Math.hypot(dx, dy) < 10) return;
+      st.dir = Math.abs(dx) > Math.abs(dy) * 1.2 ? "x" : "y";
+      if (st.dir !== "x") { st = null; return; }
+      stage.setPointerCapture(e.pointerId);
+      st.el.style.transition = "none";
+    }
+    const W = stage.clientWidth, n = exs().length;
+    const blocked = (dx > 0 && G.ex === 0) || (dx < 0 && G.ex === n - 1);
+    const x = blocked ? Math.sign(dx) * rubber(Math.abs(dx), W) : dx;
+    st.dx = x;
+    st.el.style.transform = `translateX(${x}px)`;
+    st.el.style.opacity = String(1 - Math.min(0.4, Math.abs(x) / W * 0.6));
+    st.hist.push({ x: e.clientX, t: e.timeStamp }); if (st.hist.length > 5) st.hist.shift();
+  });
+  const end = e => {
+    if (!st || e.pointerId !== st.id) return;
+    const s = st; st = null;
+    if (s.dir !== "x") return;
+    stage.dataset.dragEnd = Date.now();
+    const W = stage.clientWidth, v = velocityOf(s.hist, "x"), n = exs().length, proj = s.dx + project(v, 0.99);
+    let dir = 0;
+    if (proj < -W * 0.3 && G.ex < n - 1) dir = 1;
+    else if (proj > W * 0.3 && G.ex > 0) dir = -1;
+    if (dir) {
+      // L'écran part du côté du geste à la vitesse du doigt, le suivant arrive de l'autre côté
+      spring({ from: s.dx, to: -dir * W, velocity: v, response: 0.3, onUpdate: x => { s.el.style.transform = `translateX(${x}px)`; } });
+      swipeTo(G.ex + dir, dir > 0 ? "right" : "left");
+    } else {
+      spring({ from: s.dx, to: 0, velocity: v, response: 0.28, onUpdate: x => { s.el.style.transform = `translateX(${x}px)`; s.el.style.opacity = String(1 - Math.min(0.4, Math.abs(x) / W * 0.6)); },
+        onDone: () => { s.el.style.transform = ""; s.el.style.opacity = ""; s.el.style.transition = ""; } });
+    }
+  };
+  stage.addEventListener("pointerup", end); stage.addEventListener("pointercancel", end);
+  stage.addEventListener("click", ev => { if (Date.now() - (+stage.dataset.dragEnd || 0) < 350) { ev.stopPropagation(); ev.preventDefault(); } }, true);
+
+  // Tirer la barre du haut vers le bas : fermer la séance (elle reste en mémoire)
+  const ses = $("session"), top = ses.querySelector(".s-top");
+  let pt = null, pullEnd = 0;
+  top.addEventListener("pointerdown", e => { pt = { id: e.pointerId, x0: e.clientX, y0: e.clientY, dir: null, dy: 0, hist: [{ y: e.clientY, t: e.timeStamp }] }; });
+  top.addEventListener("pointermove", e => {
+    if (!pt || e.pointerId !== pt.id) return;
+    const dx = e.clientX - pt.x0, dy = e.clientY - pt.y0;
+    if (!pt.dir) {
+      if (Math.hypot(dx, dy) < 10) return;
+      pt.dir = dy > 0 && Math.abs(dy) > Math.abs(dx) ? "y" : "n";
+      if (pt.dir !== "y") { pt = null; return; }
+      top.setPointerCapture(e.pointerId); ses.classList.add("dragging");
+    }
+    const y = dy > 0 ? dy : -rubber(-dy, ses.offsetHeight) * 0.2;
+    pt.dy = y; ses.style.transform = `translateY(${y}px)`;
+    pt.hist.push({ y: e.clientY, t: e.timeStamp }); if (pt.hist.length > 5) pt.hist.shift();
+  });
+  const pend = e => {
+    if (!pt || e.pointerId !== pt.id) return;
+    const s = pt; pt = null;
+    if (s.dir !== "y") return;
+    pullEnd = Date.now();
+    const H = ses.offsetHeight, v = velocityOf(s.hist, "y");
+    if (s.dy + project(v, 0.99) > H * 0.3 || v > 800) {
+      spring({ from: s.dy, to: H, velocity: v, response: 0.32, onUpdate: y => { ses.style.transform = `translateY(${y}px)`; },
+        onDone: () => { ses.classList.remove("dragging"); closeSession(); } });
+    } else {
+      spring({ from: s.dy, to: 0, velocity: v, response: 0.28, onUpdate: y => { ses.style.transform = `translateY(${y}px)`; },
+        onDone: () => { ses.style.transform = ""; ses.classList.remove("dragging"); } });
+    }
+  };
+  top.addEventListener("pointerup", pend); top.addEventListener("pointercancel", pend);
+  top.addEventListener("click", ev => { if (Date.now() - pullEnd < 350) { ev.stopPropagation(); ev.preventDefault(); } }, true);
 }
 
 // ---------- Sauvegarde ----------
@@ -700,7 +973,20 @@ function pushWidgets() {
       const x = exList(d.id)[0], c = coach(x);
       coachOut = { ex: LIB[x.k].n, type: c.type, label: c.label, text: c.text };
     }
-    native("updateWidgets", JSON.stringify({ plan, done: doneList, active: G ? { date: DB.logs[G.docId] && DB.logs[G.docId].date, day: G.dayId } : null, coach: coachOut, more: Math.max(0, alerts.length - 1) }));
+    // Carte de chaleur + bilan de la semaine (widget « Muscles » et notification du dimanche)
+    const h = weekHeat(), mon = mondayKey();
+    let records = 0;
+    programKeys().forEach((x, k) => {
+      const b = bestOf(k); if (!b || b.date < mon) return;
+      if (sessionsWith(k).some(s => s.date < mon)) records++; // un record ne compte que s'il bat une séance d'avant
+    });
+    native("updateWidgets", JSON.stringify({
+      plan, done: doneList, active: G ? { date: DB.logs[G.docId] && DB.logs[G.docId].date, day: G.dayId } : null,
+      coach: coachOut, more: Math.max(0, alerts.length - 1),
+      heat: { week: mon, lv: h.lv, weak: h.weak ? MUSCLES[h.weak] : null, any: h.any },
+      week: { monday: mon, records },
+      body: BODY
+    }));
   }, 300);
 }
 
@@ -712,8 +998,8 @@ window.notchOpen = action => {
   else if (action.startsWith("view:")) { if (!$("session").hidden) closeSession(); show(action.slice(5)); }
 };
 window.notchBack = () => {
+  if (SHEET) { closeSheet(); return true; }
   if (!$("session").hidden) {
-    if (G && (G.screen === "swap")) { goto("intro"); return true; }
     closeSession(); return true;
   }
   if (VIEW !== "accueil") { show("accueil"); return true; }
@@ -722,7 +1008,7 @@ window.notchBack = () => {
 
 // ---------- Toast ----------
 let tT = null;
-function toast(m, rec) { const t = $("toast"); t.textContent = m; t.className = "toast" + (rec ? " rec" : ""); t.hidden = false; clearTimeout(tT); tT = setTimeout(() => t.hidden = true, 2600); }
+function toast(m, rec) { const t = $("toast"); t.textContent = m; t.className = "toast glass" + (rec ? " rec" : ""); t.hidden = false; clearTimeout(tT); tT = setTimeout(() => t.hidden = true, 2600); }
 
 // ---------- Événements ----------
 document.addEventListener("click", e => {
@@ -734,13 +1020,15 @@ document.addEventListener("click", e => {
   if (a === "export") return exportData();
   if (a === "import") return $("import-file").click();
   if (a === "del") { const id = b.dataset.id; if (ARMED === id) { ARMED = null; delete DB.body[id]; save(); } else ARMED = id; return renderBody(); }
+  if (a === "settings") return openSettings();
+  if (a === "sheet-close") return closeSheet();
   if (a === "unswap") { delete DB.prefs.swaps[b.dataset.day + ":" + b.dataset.i]; save(); return renderProgram(); }
   if (!G) return;
   if (a === "begin") { const j = firstPending(curX()); G.set = j < 0 ? 0 : j; return goto("set"); }
   if (a === "intro") return goto("intro");
   if (a === "validate") return validate();
   if (a === "edit") { G.set = +b.dataset.j; return goto("set"); }
-  if (a === "swap") return goto("swap");
+  if (a === "swap") return openVariants();
   if (a === "pick") return pickSwap(b.dataset.k);
   if (a === "jump") { clearInterval(timer); timer = null; native("cancelRest"); delete G.restEnd; delete G.after; G.ex = +b.dataset.i; G.set = Math.max(0, firstPending(curX())); return goto("intro"); }
   if (a === "step") {
@@ -753,7 +1041,10 @@ document.addEventListener("click", e => {
 });
 $("s-quit").addEventListener("click", closeSession);
 $("import-file").addEventListener("change", e => { const f = e.target.files[0]; if (f) importData(f); e.target.value = ""; });
-document.addEventListener("change", e => { if (e.target.id === "pk") { PK = e.target.value; renderProgress(); } });
+document.addEventListener("change", e => {
+  if (e.target.id === "pk") { PK = e.target.value; renderProgress(); }
+  else if (e.target.id && e.target.id.startsWith("st-")) onSettingChange(e.target.id, e.target);
+});
 document.addEventListener("submit", e => {
   if (e.target.id !== "bform") return; e.preventDefault();
   const date = $("b-date").value, w = num($("b-weight").value), t = num($("b-waist").value);
@@ -770,6 +1061,7 @@ document.addEventListener("visibilitychange", () => {
 window.addEventListener("hashchange", () => { const h = location.hash.slice(1); if (h && h !== VIEW) show(h); });
 
 // ---------- Démarrage ----------
-load(); loadG();
+load(); loadG(); applyPrefs();
+setupGestures();
 show(location.hash.slice(1) || "accueil");
 pushWidgets();

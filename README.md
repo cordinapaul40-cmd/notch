@@ -14,6 +14,21 @@ Tes données restent sur le téléphone lors des mises à jour.
 
 - **Prochaine séance** : la séance du jour, tes séances de la semaine et un bouton pour commencer directement.
 - **Le coach** : le prochain cran à franchir, ou l'exercice qui stagne.
+- **Muscles de la semaine** : la silhouette se colore selon les muscles travaillés, avec le muscle à travailler.
+
+## Notifications
+
+- **Récupération** et **C'est reparti** : quand tu quittes l'appli pendant une récup.
+- **Rappel de séance** (17 h 30 par défaut) : les jours d'entraînement, si la séance n'est pas faite.
+- **Bilan du dimanche** (19 h) : séances de la semaine, records, muscle à travailler.
+
+Tout se règle dans Réglages (roue dentée sur l'accueil), avec aussi « Réduire la transparence » et le bip de fin de récup.
+
+## Gestes
+
+- Glisser à gauche / droite pendant la séance : exercice suivant / précédent.
+- Tirer la barre du haut vers le bas : fermer la séance (elle reste en mémoire).
+- Les panneaux (variantes, réglages) se ferment en les tirant vers le bas.
 - Appui long sur l'icône Notch : *Séance du jour*, *Noter mon poids*, *Mes progrès*.
 
 ## Pendant une séance

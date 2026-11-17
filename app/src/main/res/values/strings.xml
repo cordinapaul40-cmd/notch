@@ -5,6 +5,8 @@
     <string name="widget_next_desc">Ta séance du jour, ta semaine et un bouton pour commencer</string>
     <string name="widget_coach_name">Le coach</string>
     <string name="widget_coach_desc">Le prochain cran à franchir ou l’exercice qui stagne</string>
+    <string name="widget_muscles_name">Muscles de la semaine</string>
+    <string name="widget_muscles_desc">La silhouette colorée selon les muscles travaillés cette semaine</string>
     <string name="sc_today_short">Séance du jour</string>
     <string name="sc_today_long">Commencer la séance du jour</string>
     <string name="sc_seche_short">Noter mon poids</string>

@@ -21,6 +21,7 @@ import androidx.glance.layout.Box
 import androidx.glance.layout.Column
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
+import androidx.glance.layout.fillMaxHeight
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
@@ -68,6 +69,7 @@ object WidgetStore {
         scope.launch {
             runCatching { NextSessionWidget().updateAll(c) }
             runCatching { CoachWidget().updateAll(c) }
+            runCatching { MusclesWidget().updateAll(c) }
         }
     }
 
@@ -267,6 +269,120 @@ private fun CoachContent(context: Context, coach: JSONObject?, more: Int) {
                     Spacer(GlanceModifier.defaultWeight())
                     Text("+ $more autre${if (more > 1) "s" else ""} conseil${if (more > 1) "s" else ""}", style = TextStyle(color = NC.accent, fontSize = 11.sp, fontWeight = FontWeight.Bold))
                 }
+            }
+        }
+    }
+}
+
+// ---------- Widget « Muscles de la semaine » ----------
+/** Dessine la silhouette (même dessin que dans l'appli) colorée selon le travail de la semaine. */
+object BodyRender {
+    fun render(c: Context, body: JSONObject, lv: JSONObject?, widthPx: Int): android.graphics.Bitmap {
+        val night = (c.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+            android.content.res.Configuration.UI_MODE_NIGHT_YES
+        val colBody = if (night) 0xFF1F2229.toInt() else 0xFFE1E4EA.toInt()
+        val colMuscle = if (night) 0xFF343944.toInt() else 0xFFCDD2DA.toInt()
+        val colAccent = if (night) 0xFF4C7DFF.toInt() else 0xFF2F5FE8.toInt()
+        val colLine = if (night) 0xFF15171B.toInt() else 0xFFFFFFFF.toInt()
+
+        val scale = widthPx / 220f
+        val bmp = android.graphics.Bitmap.createBitmap(widthPx, (218 * scale).toInt(), android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bmp)
+        canvas.scale(scale, scale)
+        val fill = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { style = android.graphics.Paint.Style.FILL }
+        val stroke = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            style = android.graphics.Paint.Style.STROKE; strokeWidth = 0.6f; color = colLine; strokeJoin = android.graphics.Paint.Join.ROUND
+        }
+        val outline = androidx.core.graphics.PathParser.createPathFromPathData(body.getString("outline"))
+
+        fun both(path: android.graphics.Path, mirror: Boolean, paints: List<android.graphics.Paint>) {
+            paints.forEach { canvas.drawPath(path, it) }
+            if (mirror) {
+                canvas.save(); canvas.translate(100f, 0f); canvas.scale(-1f, 1f)
+                paints.forEach { canvas.drawPath(path, it) }
+                canvas.restore()
+            }
+        }
+
+        fun figure(key: String, dx: Float) {
+            val list = body.optJSONArray(key) ?: return
+            canvas.save(); canvas.translate(dx, 0f)
+            fill.color = colBody
+            both(outline, true, listOf(fill))
+            for (i in 0 until list.length()) {
+                val m = list.getJSONObject(i)
+                val path = runCatching { androidx.core.graphics.PathParser.createPathFromPathData(m.getString("d")) }.getOrNull() ?: continue
+                val level = lv?.optDouble(m.getString("g"), 0.0) ?: 0.0
+                val mirror = m.optInt("s") == 1
+                val base = android.graphics.Paint(fill).apply { color = colMuscle }
+                val paints = mutableListOf(base)
+                if (level > 0) {
+                    val alpha = ((0.18 + 0.82 * level).coerceIn(0.0, 1.0) * 255).toInt()
+                    paints += android.graphics.Paint(fill).apply { color = (colAccent and 0x00FFFFFF) or (alpha shl 24) }
+                }
+                paints += stroke
+                both(path, mirror, paints)
+            }
+            canvas.restore()
+        }
+        figure("front", 0f)
+        figure("back", 120f)
+        return bmp
+    }
+}
+
+class MusclesWidget : GlanceAppWidget() {
+    override suspend fun provideGlance(context: Context, id: GlanceId) {
+        val data = WidgetStore.load(context)
+        val today = LocalDate.now()
+        val monday = today.minusDays((today.dayOfWeek.value - 1).toLong()).toString()
+        val heat = data?.optJSONObject("heat")
+        val thisWeek = heat != null && heat.optString("week") == monday && heat.optBoolean("any")
+        val body = data?.optJSONObject("body")
+        val bmp = body?.let { runCatching { BodyRender.render(context, it, if (thisWeek) heat!!.optJSONObject("lv") else null, 440) }.getOrNull() }
+        val weak = if (thisWeek) heat!!.optString("weak").takeIf { it.isNotBlank() && it != "null" } else null
+        val count = data?.let { runCatching { computeNext(it)?.count }.getOrNull() } ?: 0
+        provideContent { MusclesContent(context, bmp, weak, count, data != null) }
+    }
+}
+
+class MusclesWidgetReceiver : GlanceAppWidgetReceiver() {
+    override val glanceAppWidget: GlanceAppWidget = MusclesWidget()
+}
+
+@Composable
+private fun MusclesContent(context: Context, bmp: android.graphics.Bitmap?, weak: String?, count: Int, ready: Boolean) {
+    Box(
+        modifier = GlanceModifier
+            .fillMaxSize()
+            .cornerRadius(24.dp)
+            .background(NC.surface)
+            .clickable(actionStartActivity(MainActivity.intentFor(context, "view:accueil")))
+            .padding(12.dp),
+    ) {
+        Row(modifier = GlanceModifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+            if (bmp != null) {
+                androidx.glance.Image(
+                    provider = androidx.glance.ImageProvider(bmp),
+                    contentDescription = "Muscles travaillés cette semaine",
+                    contentScale = androidx.glance.layout.ContentScale.Fit,
+                    modifier = GlanceModifier.width(130.dp).fillMaxHeight(),
+                )
+                Spacer(GlanceModifier.width(10.dp))
+            }
+            Column(modifier = GlanceModifier.defaultWeight()) {
+                Text("MUSCLES DE LA SEMAINE", style = TextStyle(color = NC.muted, fontSize = 10.sp, fontWeight = FontWeight.Bold), maxLines = 2)
+                Spacer(GlanceModifier.height(6.dp))
+                when {
+                    !ready -> Text("Ouvre Notch une première fois", style = TextStyle(color = NC.ink, fontSize = 14.sp, fontWeight = FontWeight.Bold))
+                    weak == null -> Text("Nouvelle semaine : tout est à faire", style = TextStyle(color = NC.ink, fontSize = 14.sp, fontWeight = FontWeight.Bold), maxLines = 3)
+                    else -> {
+                        Text("À travailler", style = TextStyle(color = NC.muted, fontSize = 11.sp))
+                        Text(weak, style = TextStyle(color = NC.accent, fontSize = 16.sp, fontWeight = FontWeight.Bold), maxLines = 2)
+                    }
+                }
+                Spacer(GlanceModifier.height(6.dp))
+                Text("$count/4 séances", style = TextStyle(color = NC.ink, fontSize = 12.sp, fontWeight = FontWeight.Bold))
             }
         }
     }

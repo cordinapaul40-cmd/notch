@@ -37,6 +37,11 @@ class NotchBridge(private val activity: MainActivity) {
     }
 
     @JavascriptInterface
+    fun setReminders(json: String) {
+        Reminders.save(activity.applicationContext, json)
+    }
+
+    @JavascriptInterface
     fun updateWidgets(json: String) {
         WidgetStore.save(activity.applicationContext, json)
     }

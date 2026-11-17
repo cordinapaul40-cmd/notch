@@ -22,6 +22,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.webkit.WebViewAssetLoader
 import org.json.JSONObject
+import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
 
@@ -62,7 +63,8 @@ class MainActivity : ComponentActivity() {
             javaScriptEnabled = true
             domStorageEnabled = true
             mediaPlaybackRequiresUserGesture = false
-            textZoom = 100
+            // Respecte la taille de texte choisie dans les réglages Android
+            textZoom = (resources.configuration.fontScale * 100).roundToInt()
             allowFileAccess = false
         }
         web.addJavascriptInterface(NotchBridge(this), "NotchNative")

@@ -24,7 +24,7 @@
     <section class="view" id="v-seche" hidden></section>
   </main>
 
-  <nav class="tabbar" aria-label="Navigation">
+  <nav class="tabbar glass" aria-label="Navigation">
     <div class="tabbar-in">
       <button class="tb" type="button" data-view="accueil"><svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>Accueil</button>
       <button class="tb" type="button" data-view="programme"><svg viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>Programme</button>
@@ -35,6 +35,7 @@
 
   <div class="session" id="session" hidden>
     <div class="s-top">
+      <div class="grabber" aria-hidden="true"></div>
       <div class="row">
         <button type="button" id="s-quit">Quitter</button>
         <span id="s-count"></span>
@@ -44,7 +45,8 @@
     <div class="stage" id="stage"></div>
   </div>
 
-  <div class="toast" id="toast" hidden></div>
+  <div class="toast glass" id="toast" role="status" hidden></div>
+  <div class="sr-only" id="sr" aria-live="assertive"></div>
   <input type="file" id="import-file" accept="application/json,.json" hidden>
 
   <script src="data.js"></script>

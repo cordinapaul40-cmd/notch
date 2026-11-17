@@ -6,6 +6,7 @@ class NotchApp : Application() {
     override fun onCreate() {
         super.onCreate()
         Rest.createChannels(this)
+        Reminders.createChannel(this)
     }
 
     companion object {
