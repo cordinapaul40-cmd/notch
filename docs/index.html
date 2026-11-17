@@ -2,7 +2,8 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="color-scheme" content="light dark">
   <title>Notch</title>
   <meta name="description" content="Notch : ton coach de musculation. Monte d'un cran.">
   <meta name="theme-color" content="#F4F5F7" media="(prefers-color-scheme: light)">
@@ -49,7 +50,7 @@
   <script src="data.js"></script>
   <script src="app.js"></script>
   <script>
-    if ("serviceWorker" in navigator) {
+    if ("serviceWorker" in navigator && !window.NotchNative) {
       window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
     }
   </script>

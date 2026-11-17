@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Thème sombre : la page Notch passe aussi en sombre -->
+    <style name="Theme.Notch" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:statusBarColor">@color/bg</item>
+        <item name="android:navigationBarColor">@color/bar</item>
+        <item name="android:colorAccent">@color/notch_blue</item>
+    </style>
+</resources>

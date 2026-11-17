@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut android:shortcutId="today" android:enabled="true" android:icon="@drawable/ic_sc_today"
+        android:shortcutShortLabel="@string/sc_today_short" android:shortcutLongLabel="@string/sc_today_long">
+        <intent android:action="android.intent.action.VIEW" android:targetPackage="app.notch" android:targetClass="app.notch.MainActivity">
+            <extra android:name="open" android:value="today" />
+        </intent>
+    </shortcut>
+    <shortcut android:shortcutId="seche" android:enabled="true" android:icon="@drawable/ic_sc_seche"
+        android:shortcutShortLabel="@string/sc_seche_short" android:shortcutLongLabel="@string/sc_seche_long">
+        <intent android:action="android.intent.action.VIEW" android:targetPackage="app.notch" android:targetClass="app.notch.MainActivity">
+            <extra android:name="open" android:value="view:seche" />
+        </intent>
+    </shortcut>
+    <shortcut android:shortcutId="progres" android:enabled="true" android:icon="@drawable/ic_sc_progres"
+        android:shortcutShortLabel="@string/sc_progres_short" android:shortcutLongLabel="@string/sc_progres_long">
+        <intent android:action="android.intent.action.VIEW" android:targetPackage="app.notch" android:targetClass="app.notch.MainActivity">
+            <extra android:name="open" android:value="view:progres" />
+        </intent>
+    </shortcut>
+</shortcuts>

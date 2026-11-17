@@ -1,0 +1,62 @@
+name: Construire l'appli
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Télécharger les polices (Archivo, Inter)
+        run: |
+          d=docs/fonts
+          mkdir -p "$d"
+          base=https://github.com/google/fonts/raw/main/ofl
+          get() { curl -fsSL -o "$d/$1" "$2" || { echo "Police $1 indisponible"; rm -f "$d/$1"; }; }
+          get archivo.ttf "$base/archivo/Archivo%5Bwdth,wght%5D.ttf"
+          get inter.ttf   "$base/inter/Inter%5Bopsz,wght%5D.ttf"
+          ls -la "$d"
+
+      - name: Construire l'APK
+        run: |
+          set -o pipefail
+          gradle assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log
+
+      - name: Signaler l'erreur
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          grep -E "^e: |error:|ERROR|What went wrong|Missing class|FAILURE" -A 3 build.log | head -c 60000 > errors.txt || true
+          [ -s errors.txt ] || tail -c 60000 build.log > errors.txt
+          gh issue create --repo "$GITHUB_REPOSITORY" --title "Échec de construction #${{ github.run_number }}" --body-file errors.txt
+
+      - name: Préparer le fichier
+        run: cp app/build/outputs/apk/release/app-release.apk "Notch-v${{ github.run_number }}.apk"
+
+      - name: Publier la version
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: Notch — version ${{ github.run_number }}
+          files: Notch-v${{ github.run_number }}.apk
+          make_latest: true
+          body: |
+            Depuis ton téléphone Android, touche le fichier **Notch-v${{ github.run_number }}.apk** ci-dessous pour le télécharger, puis ouvre-le pour installer ou mettre à jour l'appli. Tes séances sont conservées lors des mises à jour.

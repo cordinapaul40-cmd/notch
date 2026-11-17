@@ -1,0 +1,273 @@
+package app.notch
+
+import android.content.Context
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.glance.GlanceId
+import androidx.glance.GlanceModifier
+import androidx.glance.action.clickable
+import androidx.glance.appwidget.GlanceAppWidget
+import androidx.glance.appwidget.GlanceAppWidgetReceiver
+import androidx.glance.appwidget.action.actionStartActivity
+import androidx.glance.appwidget.cornerRadius
+import androidx.glance.appwidget.provideContent
+import androidx.glance.appwidget.updateAll
+import androidx.glance.background
+import androidx.glance.color.ColorProvider
+import androidx.glance.layout.Alignment
+import androidx.glance.layout.Box
+import androidx.glance.layout.Column
+import androidx.glance.layout.Row
+import androidx.glance.layout.Spacer
+import androidx.glance.layout.fillMaxSize
+import androidx.glance.layout.fillMaxWidth
+import androidx.glance.layout.height
+import androidx.glance.layout.padding
+import androidx.glance.layout.size
+import androidx.glance.layout.width
+import androidx.glance.text.FontWeight
+import androidx.glance.text.Text
+import androidx.glance.text.TextStyle
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import org.json.JSONObject
+import java.time.LocalDate
+
+// ---------- Couleurs Notch ----------
+private object NC {
+    fun c(day: Long, night: Long = day) = ColorProvider(day = Color(day), night = Color(night))
+    val blue = c(0xFF2F5FE8, 0xFF4C7DFF)
+    val white = c(0xFFFFFFFF)
+    val white80 = c(0xCCFFFFFF)
+    val white35 = c(0x59FFFFFF)
+    val white15 = c(0x26FFFFFF)
+    val black = c(0xFF0A0B0D)
+    val surface = c(0xFFFFFFFF, 0xFF15171B)
+    val ink = c(0xFF0B0C0E, 0xFFF4F5F6)
+    val muted = c(0xFF5F636C, 0xFF8C9099)
+    val accent = c(0xFF2F5FE8, 0xFF4C7DFF)
+    val okBg = c(0xFFDDF3E8, 0xFF123526)
+    val ok = c(0xFF12804F, 0xFF3DD68C)
+    val warnBg = c(0xFFFBEED3, 0xFF3A2C12)
+    val warn = c(0xFF8A5A00, 0xFFF2B94B)
+    val softBg = c(0xFFEEF0F3, 0xFF23262C)
+    val accentBg = c(0xFFE6EDFD, 0xFF1C2540)
+}
+
+// ---------- Données envoyées par l'appli ----------
+object WidgetStore {
+    private const val PREFS = "notch_widgets"
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    fun save(c: Context, json: String) {
+        c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("data", json).apply()
+        scope.launch {
+            runCatching { NextSessionWidget().updateAll(c) }
+            runCatching { CoachWidget().updateAll(c) }
+        }
+    }
+
+    fun load(c: Context): JSONObject? {
+        val s = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("data", null) ?: return null
+        return runCatching { JSONObject(s) }.getOrNull()
+    }
+}
+
+private val DAY_NAMES = listOf("lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche")
+
+data class PlanDay(val id: String, val wd: Int, val title: String, val tag: String, val ex: Int, val mins: Int, val first: String)
+
+data class NextInfo(
+    val label: String,
+    val title: String,
+    val sub: String,
+    val dayId: String,
+    val button: String?,
+    val dots: List<Int>,   // 0 repos · 1 prévu · 2 fait
+    val todayIndex: Int,
+    val count: Int,
+)
+
+/** Calcule la séance à afficher pour aujourd'hui, même si l'appli n'a pas été ouverte depuis. */
+fun computeNext(o: JSONObject): NextInfo? {
+    val arr = o.optJSONArray("plan") ?: return null
+    val plan = (0 until arr.length()).map {
+        val p = arr.getJSONObject(it)
+        PlanDay(p.getString("id"), p.getInt("wd"), p.getString("title"), p.optString("tag"), p.optInt("ex"), p.optInt("mins"), p.optString("first"))
+    }.sortedBy { it.wd }
+    if (plan.isEmpty()) return null
+
+    val today = LocalDate.now()
+    val wd = today.dayOfWeek.value
+    val monday = today.minusDays((wd - 1).toLong())
+    val doneArr = o.optJSONArray("done")
+    data class Done(val date: LocalDate, val day: String, val finished: Boolean)
+    val done = if (doneArr == null) emptyList() else (0 until doneArr.length()).mapNotNull {
+        val d = doneArr.getJSONObject(it)
+        runCatching { Done(LocalDate.parse(d.getString("date")), d.getString("day"), d.optBoolean("finished")) }.getOrNull()
+    }
+    val weekDone = done.filter { !it.date.isBefore(monday) }.map { it.day }.toSet()
+    val finishedToday = done.filter { it.date == today && it.finished }.map { it.day }.toSet()
+
+    val active = o.optJSONObject("active")
+    val activeDay = active?.optString("day")
+    val activePlan = if (active != null && active.optString("date") == today.toString()) plan.firstOrNull { it.id == activeDay } else null
+
+    val target: PlanDay
+    val label: String
+    val button: String?
+    val todays = plan.firstOrNull { it.wd == wd }
+    if (activePlan != null && activePlan.id !in finishedToday) {
+        target = activePlan; label = "Séance en cours"; button = "Reprendre"
+    } else if (todays != null && todays.id !in finishedToday) {
+        target = todays; label = "Aujourd’hui"; button = "Commencer"
+    } else {
+        val next = plan.firstOrNull { it.wd > wd } ?: plan.first()
+        target = next
+        label = (if (finishedToday.isNotEmpty()) "Bien joué · " else "") + "Prochaine : " + DAY_NAMES[next.wd - 1]
+        button = null
+    }
+    val dots = (1..7).map { i ->
+        val p = plan.firstOrNull { it.wd == i }
+        when {
+            p == null -> 0
+            p.id in weekDone -> 2
+            else -> 1
+        }
+    }
+    return NextInfo(
+        label = label,
+        title = target.title,
+        sub = "${target.ex} exercices · ${target.mins} min · ${target.first.lowercase()} en premier",
+        dayId = target.id,
+        button = button,
+        dots = dots,
+        todayIndex = wd - 1,
+        count = weekDone.size,
+    )
+}
+
+// ---------- Widget « Prochaine séance » ----------
+class NextSessionWidget : GlanceAppWidget() {
+    override suspend fun provideGlance(context: Context, id: GlanceId) {
+        val info = WidgetStore.load(context)?.let { runCatching { computeNext(it) }.getOrNull() }
+        provideContent { NextContent(context, info) }
+    }
+}
+
+class NextSessionWidgetReceiver : GlanceAppWidgetReceiver() {
+    override val glanceAppWidget: GlanceAppWidget = NextSessionWidget()
+}
+
+@Composable
+private fun NextContent(context: Context, info: NextInfo?) {
+    Box(
+        modifier = GlanceModifier
+            .fillMaxSize()
+            .cornerRadius(24.dp)
+            .background(NC.blue)
+            .clickable(actionStartActivity(MainActivity.intentFor(context, "view:accueil")))
+            .padding(16.dp),
+    ) {
+        if (info == null) {
+            Column(modifier = GlanceModifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+                Text("NOTCH", style = TextStyle(color = NC.white80, fontSize = 11.sp, fontWeight = FontWeight.Bold))
+                Spacer(GlanceModifier.height(4.dp))
+                Text("Ouvre Notch une première fois", style = TextStyle(color = NC.white, fontSize = 16.sp, fontWeight = FontWeight.Bold))
+            }
+            return@Box
+        }
+        Column(modifier = GlanceModifier.fillMaxSize()) {
+            Text(info.label.uppercase(), style = TextStyle(color = NC.white80, fontSize = 11.sp, fontWeight = FontWeight.Bold), maxLines = 1)
+            Spacer(GlanceModifier.height(2.dp))
+            Text(info.title.uppercase(), style = TextStyle(color = NC.white, fontSize = 20.sp, fontWeight = FontWeight.Bold), maxLines = 1)
+            Text(info.sub, style = TextStyle(color = NC.white80, fontSize = 12.sp), maxLines = 1)
+            Spacer(GlanceModifier.defaultWeight())
+            Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                info.dots.forEachIndexed { i, state ->
+                    val color = when (state) { 2 -> NC.white; 1 -> NC.white35; else -> NC.white15 }
+                    Box(
+                        modifier = GlanceModifier
+                            .size(width = 10.dp, height = if (i == info.todayIndex) 18.dp else 10.dp)
+                            .cornerRadius(5.dp)
+                            .background(color),
+                    ) {}
+                    Spacer(GlanceModifier.width(4.dp))
+                }
+                Spacer(GlanceModifier.width(4.dp))
+                Text("${info.count}/4", style = TextStyle(color = NC.white, fontSize = 13.sp, fontWeight = FontWeight.Bold))
+                Spacer(GlanceModifier.defaultWeight())
+                if (info.button != null) {
+                    Box(
+                        modifier = GlanceModifier
+                            .cornerRadius(14.dp)
+                            .background(NC.black)
+                            .clickable(actionStartActivity(MainActivity.intentFor(context, "start:${info.dayId}")))
+                            .padding(horizontal = 14.dp, vertical = 9.dp),
+                    ) {
+                        Text(info.button.uppercase() + "  →", style = TextStyle(color = NC.white, fontSize = 13.sp, fontWeight = FontWeight.Bold))
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ---------- Widget « Le coach » ----------
+class CoachWidget : GlanceAppWidget() {
+    override suspend fun provideGlance(context: Context, id: GlanceId) {
+        val coach = WidgetStore.load(context)?.optJSONObject("coach")
+        val more = WidgetStore.load(context)?.optInt("more") ?: 0
+        provideContent { CoachContent(context, coach, more) }
+    }
+}
+
+class CoachWidgetReceiver : GlanceAppWidgetReceiver() {
+    override val glanceAppWidget: GlanceAppWidget = CoachWidget()
+}
+
+@Composable
+private fun CoachContent(context: Context, coach: JSONObject?, more: Int) {
+    Box(
+        modifier = GlanceModifier
+            .fillMaxSize()
+            .cornerRadius(24.dp)
+            .background(NC.surface)
+            .clickable(actionStartActivity(MainActivity.intentFor(context, "view:progres")))
+            .padding(16.dp),
+    ) {
+        Column(modifier = GlanceModifier.fillMaxSize()) {
+            Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("LE COACH", style = TextStyle(color = NC.muted, fontSize = 11.sp, fontWeight = FontWeight.Bold))
+                Spacer(GlanceModifier.defaultWeight())
+                if (coach != null) {
+                    val (bg, fg) = when (coach.optString("type")) {
+                        "monte" -> NC.okBg to NC.ok
+                        "stagne" -> NC.warnBg to NC.warn
+                        "depart" -> NC.accentBg to NC.accent
+                        else -> NC.softBg to NC.muted
+                    }
+                    Box(modifier = GlanceModifier.cornerRadius(10.dp).background(bg).padding(horizontal = 8.dp, vertical = 3.dp)) {
+                        Text(coach.optString("label").uppercase(), style = TextStyle(color = fg, fontSize = 10.sp, fontWeight = FontWeight.Bold))
+                    }
+                }
+            }
+            Spacer(GlanceModifier.height(6.dp))
+            if (coach == null) {
+                Text("Ouvre Notch une première fois", style = TextStyle(color = NC.ink, fontSize = 15.sp, fontWeight = FontWeight.Bold))
+            } else {
+                Text(coach.optString("ex"), style = TextStyle(color = NC.ink, fontSize = 16.sp, fontWeight = FontWeight.Bold), maxLines = 1)
+                Spacer(GlanceModifier.height(2.dp))
+                Text(coach.optString("text"), style = TextStyle(color = NC.ink, fontSize = 13.sp), maxLines = 3)
+                if (more > 0) {
+                    Spacer(GlanceModifier.defaultWeight())
+                    Text("+ $more autre${if (more > 1) "s" else ""} conseil${if (more > 1) "s" else ""}", style = TextStyle(color = NC.accent, fontSize = 11.sp, fontWeight = FontWeight.Bold))
+                }
+            }
+        }
+    }
+}

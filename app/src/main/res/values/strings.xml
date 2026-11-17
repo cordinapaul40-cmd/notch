@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Notch</string>
+    <string name="widget_next_name">Prochaine séance</string>
+    <string name="widget_next_desc">Ta séance du jour, ta semaine et un bouton pour commencer</string>
+    <string name="widget_coach_name">Le coach</string>
+    <string name="widget_coach_desc">Le prochain cran à franchir ou l’exercice qui stagne</string>
+    <string name="sc_today_short">Séance du jour</string>
+    <string name="sc_today_long">Commencer la séance du jour</string>
+    <string name="sc_seche_short">Noter mon poids</string>
+    <string name="sc_seche_long">Noter ma pesée</string>
+    <string name="sc_progres_short">Mes progrès</string>
+    <string name="sc_progres_long">Voir mes courbes et records</string>
+</resources>

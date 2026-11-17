@@ -24,18 +24,37 @@ const mondayKey = () => { const x = new Date(); x.setDate(x.getDate() - weekIdx(
 const isPdc = k => LIB[k].t === "pdc";
 const unitOf = k => LIB[k].t === "haltere" ? "kg par haltère" : "kg";
 const estimate = d => Math.round(d.ex.reduce((t, x) => t + x.sets * (45 + x.rest), 0) / 60) + 8;
-const vibrate = p => { try { navigator.vibrate && navigator.vibrate(p); } catch (e) {} };
+// Pont vers l'appli Android (absent quand Notch tourne dans un navigateur)
+const NATIVE = window.NotchNative || null;
+const native = (fn, ...args) => { try { if (NATIVE && NATIVE[fn]) return NATIVE[fn](...args); } catch (e) {} return undefined; };
+const vibrate = p => {
+  if (NATIVE) return native("vibrate", Array.isArray(p) ? p.join(",") : String(p));
+  try { navigator.vibrate && navigator.vibrate(p); } catch (e) {}
+};
 const ARROW = `<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const LOGO = (size, bg, fg) => `<svg width="${size}" height="${size}" viewBox="0 0 64 64" role="img" aria-label="Notch"><rect width="64" height="64" rx="16" fill="${bg}"/><path d="M14 44 H26 V34 H38 V24 H50" fill="none" stroke="${fg}" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
 // ---------- Données (sur le téléphone) ----------
 const KEY = "notch-data", KEY_S = "notch-session";
-let DB = { logs: {}, body: {}, lastExport: null };
+let DB = { logs: {}, body: {}, lastExport: null, prefs: { swaps: {} } };
 function load() {
-  try { const o = JSON.parse(localStorage.getItem(KEY) || "{}"); DB = { logs: o.logs || {}, body: o.body || {}, lastExport: o.lastExport || null }; } catch (e) {}
+  try {
+    const o = JSON.parse(localStorage.getItem(KEY) || "{}");
+    DB = { logs: o.logs || {}, body: o.body || {}, lastExport: o.lastExport || null, prefs: Object.assign({ swaps: {} }, o.prefs || {}) };
+  } catch (e) {}
 }
 function save() {
   try { localStorage.setItem(KEY, JSON.stringify(DB)); } catch (e) { toast("Impossible d’enregistrer : stockage du téléphone plein"); }
+  pushWidgets();
+}
+
+// ---------- Variantes : l'exercice réellement fait à une place du programme ----------
+function exList(dayId, docId) {
+  const d = dayById(dayId), l = docId ? DB.logs[docId] : null;
+  return d.ex.map((x, i) => {
+    const k = (l && l.swap && l.swap[i]) || (!l ? DB.prefs.swaps[dayId + ":" + i] : null) || x.k;
+    return k === x.k ? { ...x, base: x.k } : { ...x, k, base: x.k, w0: null, load: "À trouver à la 1re séance" };
+  });
 }
 let G = null; // séance en cours
 function saveG() { try { G ? localStorage.setItem(KEY_S, JSON.stringify(G)) : localStorage.removeItem(KEY_S); } catch (e) {} }
@@ -72,7 +91,15 @@ function coach(x, exclude) {
   }
   return c;
 }
-function programKeys() { const m = new Map(); DAYS.forEach(d => d.ex.forEach(x => { if (!m.has(x.k)) m.set(x.k, x); })); return m; }
+// Exercices suivis : ceux du programme (variantes choisies comprises) + les variantes déjà faites
+function programKeys() {
+  const m = new Map();
+  DAYS.forEach(d => exList(d.id).forEach(x => {
+    if (!m.has(x.k)) m.set(x.k, x);
+    [x.base, ...(ALT[x.base] || [])].forEach(k => { if (!m.has(k) && sessionsWith(k).length) m.set(k, { ...x, k, w0: k === x.base ? d.ex.find(e => e.k === k).w0 : null }); });
+  }));
+  return m;
+}
 const hasSets = l => Object.values(l.ex || {}).some(a => doneSets(a).length);
 
 // ---------- Silhouette musculaire ----------
@@ -179,7 +206,7 @@ function renderHome() {
 
   const alerts = [];
   programKeys().forEach((x, k) => { const c = coach(x); if (c.type === "monte" || c.type === "stagne") alerts.push({ k, c }); });
-  const first = d.ex[0], fc = coach(first, active ? G.docId : undefined);
+  const first = exList(d.id, active ? G.docId : null)[0], fc = coach(first, active ? G.docId : undefined);
   const lastFirst = sessionsWith(first.k, active ? G.docId : undefined)[0];
   const curLoad = lastFirst ? Math.max(...lastFirst.sets.map(s => s.w || 0)) : first.w0;
   const lastBody = Object.values(DB.body).filter(b => b.weight != null).sort((a, b) => b.date.localeCompare(a.date))[0];
@@ -245,14 +272,17 @@ function renderProgram() {
       <div class="stack" style="gap:4px"><div class="eyebrow">${d.day} · ≈ ${estimate(d)} min · ${esc(d.tag)}</div><h2 class="d up h2">${esc(d.title)}</h2></div>
     </div>
     <div class="muted" style="font-size:14px">Cardio : ${esc(d.cardio)}</div>
-    <div class="stack" style="gap:12px">${d.ex.map((x, i) => {
-      const L = LIB[x.k];
+    <div class="stack" style="gap:12px">${exList(d.id).map((x, i) => {
+      const L = LIB[x.k], swapped = x.k !== x.base;
+      const alts = [x.base, ...(ALT[x.base] || [])].filter(k => k !== x.k);
       return `<article class="card exc">
         <div class="map">${bodyMap(x.k)}</div>
         <div class="stack" style="gap:6px;min-width:0">
           <div class="row" style="justify-content:flex-start;gap:8px"><span class="d" style="color:var(--accent)">${i + 1}</span><h3 class="d up" style="font-size:18px">${esc(L.n)}</h3></div>
+          ${swapped ? `<div class="row" style="justify-content:flex-start;gap:8px;flex-wrap:wrap"><span class="chip depart">Variante</span><button class="link" style="background:none;border:none;padding:0" type="button" data-act="unswap" data-day="${d.id}" data-i="${i}">Remettre ${esc(LIB[x.base].n)}</button></div>` : ""}
           <div style="font-size:14px"><b>${x.sets} × ${x.lo} à ${x.hi}</b> · repos ${fmtRest(x.rest)}</div>
           <div class="muted" style="font-size:13px">${esc(x.load)}</div>
+          ${alts.length ? `<div class="muted" style="font-size:13px">Variantes : ${alts.map(k => esc(LIB[k].n)).join(" · ")}</div>` : ""}
           <details><summary>Le geste</summary><ol class="steps">${L.st.map((s, j) => `<li><span>${j + 1}</span>${esc(s)}</li>`).join("")}</ol>
           <p style="margin:10px 0 0"><a class="link" href="https://www.youtube.com/results?search_query=${encodeURIComponent(L.q)}" target="_blank" rel="noopener">Voir une démo vidéo</a></p></details>
         </div></article>`; }).join("")}</div>
@@ -338,12 +368,19 @@ function beep(freq = 880, dur = 0.16, vol = 0.25) {
     o.start(t); o.stop(t + dur + 0.02);
   } catch (e) {}
 }
-async function lockScreen() { try { if ("wakeLock" in navigator && document.visibilityState === "visible") wake = await navigator.wakeLock.request("screen"); } catch (e) {} }
-function unlockScreen() { try { wake && wake.release(); } catch (e) {} wake = null; }
+async function lockScreen() {
+  if (NATIVE) return native("keepAwake", true);
+  try { if ("wakeLock" in navigator && document.visibilityState === "visible") wake = await navigator.wakeLock.request("screen"); } catch (e) {}
+}
+function unlockScreen() {
+  if (NATIVE) return native("keepAwake", false);
+  try { wake && wake.release(); } catch (e) {} wake = null;
+}
 
 const doc = () => DB.logs[G.docId];
 const day = () => dayById(G.dayId);
-const curX = () => day().ex[G.ex];
+const exs = () => exList(G.dayId, G.docId);
+const curX = () => exs()[G.ex];
 const setsOf = x => (doc().ex[x.k] || []);
 const firstPending = x => { const a = setsOf(x); for (let j = 0; j < x.sets; j++) if (!a[j]) return j; return -1; };
 
@@ -351,16 +388,22 @@ function openSession(dayId) {
   try { if (!actx) { const AC = window.AudioContext || window.webkitAudioContext; if (AC) actx = new AC(); } } catch (e) {}
   const id = today() + "_" + dayId;
   if (!(G && G.docId === id)) {
-    if (!DB.logs[id]) { DB.logs[id] = { date: today(), day: dayId, startedAt: Date.now(), finished: false, ex: {} }; save(); }
-    const d = dayById(dayId);
+    if (!DB.logs[id]) {
+      // Les variantes gardées par défaut sont figées dans la séance du jour
+      const swap = {};
+      dayById(dayId).ex.forEach((x, i) => { const k = DB.prefs.swaps[dayId + ":" + i]; if (k && k !== x.k) swap[i] = k; });
+      DB.logs[id] = { date: today(), day: dayId, startedAt: Date.now(), finished: false, ex: {}, swap };
+      save();
+    }
     G = { dayId, docId: id, ex: 0, set: 0, screen: "intro" };
-    const ex = d.ex.findIndex(x => firstPending(x) >= 0);
-    G.ex = ex < 0 ? d.ex.length - 1 : ex;
-    G.set = Math.max(0, firstPending(d.ex[G.ex]));
+    const list = exs(), ex = list.findIndex(x => firstPending(x) >= 0);
+    G.ex = ex < 0 ? list.length - 1 : ex;
+    G.set = Math.max(0, firstPending(list[G.ex]));
     if (ex < 0) G.screen = "done";
   }
   if (DB.logs[id].finished) DB.logs[id].finished = false;
-  saveG();
+  saveG(); save();
+  native("requestNotifications");
   $("session").hidden = false; document.body.style.overflow = "hidden";
   lockScreen();
   if (G.screen === "rest") { if (G.restEnd > Date.now()) return screenRest(true); return proceed(); }
@@ -383,25 +426,55 @@ function transition(html, extra = "") {
   return el;
 }
 function topbar(label) {
-  const d = day();
   $("s-count").textContent = label;
-  $("s-segs").innerHTML = d.ex.map((x, i) => `<button type="button" data-act="jump" data-i="${i}" aria-label="Exercice ${i + 1} : ${esc(LIB[x.k].n)}" class="${firstPending(x) < 0 ? "done" : (i === G.ex && G.screen !== "done" ? "cur" : "")}"></button>`).join("");
+  $("s-segs").innerHTML = exs().map((x, i) => `<button type="button" data-act="jump" data-i="${i}" aria-label="Exercice ${i + 1} : ${esc(LIB[x.k].n)}" class="${firstPending(x) < 0 ? "done" : (i === G.ex && G.screen !== "done" ? "cur" : "")}"></button>`).join("");
 }
 function goto(screen) {
   G.screen = screen; saveG();
   if (screen === "intro") screenIntro();
   else if (screen === "set") screenSet();
+  else if (screen === "swap") screenSwap();
   else if (screen === "done") screenDone();
+}
+
+// Écran : choisir une variante
+function screenSwap() {
+  const x = curX(), done = doneSets(setsOf(x)).length > 0;
+  const options = [x.base, ...(ALT[x.base] || [])];
+  topbar("Remplacer l’exercice");
+  transition(`
+    <div class="stack" style="gap:6px"><div class="eyebrow">À la place de ${esc(LIB[x.base].n)}</div><h1 class="d s-title">Variantes</h1></div>
+    ${done ? `<div class="verdict bad">Tu as déjà fait des séries sur cet exercice aujourd’hui. Termine-le, ou change à la prochaine séance.</div>` : ""}
+    <div class="stack" style="gap:10px">${options.map(k => {
+      const L = LIB[k], last = sessionsWith(k, G.docId)[0], cur = k === x.k;
+      return `<button type="button" class="card option${cur ? " cur" : ""}" data-act="pick" data-k="${k}" ${done ? "disabled" : ""}>
+        <span class="row"><b class="d up" style="font-size:17px;text-align:left">${esc(L.n)}</b>${cur ? `<span class="chip depart">Actuel</span>` : (k === x.base ? `<span class="chip garde">Programme</span>` : "")}</span>
+        <span class="muted" style="font-size:13px;text-align:left;display:block">${esc(L.p.map(g => MUSCLES[g]).join(", "))}${last ? " · dernière fois " + last.sets.map(s => isPdc(k) ? s.r : `${s.r} × ${fmtN(s.w)}`).slice(0, 2).join(", ") : " · jamais fait"}</span>
+      </button>`; }).join("")}</div>
+    <label class="keep"><input type="checkbox" id="keep-swap"> Garder ce choix pour les prochaines séances</label>
+    <div class="push"><button class="btn" type="button" data-act="intro">Annuler</button></div>`);
+}
+function pickSwap(k) {
+  const x = curX(), keep = $("keep-swap") && $("keep-swap").checked;
+  const l = doc(); l.swap = l.swap || {};
+  if (k === x.base) delete l.swap[G.ex]; else l.swap[G.ex] = k;
+  const pk = G.dayId + ":" + G.ex;
+  if (keep) { if (k === x.base) delete DB.prefs.swaps[pk]; else DB.prefs.swaps[pk] = k; }
+  save(); G.set = Math.max(0, firstPending(curX()));
+  if (k !== x.k) toast(`${LIB[k].n} à la place de ${LIB[x.k].n}`);
+  goto("intro");
 }
 
 // Écran 1 : présentation de l'exercice
 function screenIntro() {
   const x = curX(), L = LIB[x.k], c = coach(x, G.docId);
-  topbar(`Exercice ${G.ex + 1} sur ${day().ex.length}`);
+  topbar(`Exercice ${G.ex + 1} sur ${exs().length}`);
+  const canSwap = (ALT[x.base] || []).length > 0;
   transition(`
     <div class="stack" style="gap:6px">
       <div class="eyebrow">${x.sets} séries · ${x.lo} à ${x.hi} reps · repos ${fmtRest(x.rest)}</div>
       <h1 class="d s-title">${esc(L.n)}</h1>
+      ${canSwap ? `<button class="swap-btn" type="button" data-act="swap"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h11l-3-3M17 17H6l3 3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>${x.k !== x.base ? "Variante de " + esc(LIB[x.base].n) : "Remplacer par une variante"}</button>` : ""}
     </div>
     <div class="card coach"><b>${c.w != null && !isPdc(x.k) ? "Objectif : " + fmtW(c.w) : "Objectif"}</b><span class="chip ${c.type}">${c.label}</span><p>${esc(c.text)}</p></div>
     <div class="card zones">
@@ -482,9 +555,9 @@ function validate() {
   afterExercise();
 }
 function afterExercise() {
-  const d = day();
-  const nextEx = d.ex.findIndex((x, i) => i > G.ex && firstPending(x) >= 0);
-  const anyLeft = d.ex.findIndex(x => firstPending(x) >= 0);
+  const list = exs();
+  const nextEx = list.findIndex((x, i) => i > G.ex && firstPending(x) >= 0);
+  const anyLeft = list.findIndex(x => firstPending(x) >= 0);
   if (nextEx >= 0) return startRest(120, { screen: "intro", ex: nextEx, set: 0 });
   if (anyLeft >= 0) return startRest(120, { screen: "intro", ex: anyLeft, set: 0 });
   finishSession();
@@ -493,12 +566,15 @@ function afterExercise() {
 // Écran 3 : récupération plein écran
 function startRest(sec, after) {
   G.screen = "rest"; G.restEnd = Date.now() + sec * 1000; G.restTotal = sec; G.after = after; saveG();
+  scheduleNativeRest();
   screenRest(false);
 }
+// L'appli Android prend le relais si l'écran s'éteint ou si tu quittes l'appli
+function scheduleNativeRest() { if (G && G.restEnd) native("scheduleRest", String(G.restEnd), restNextText(G.after)); }
 function restNextText(a) {
-  const d = day();
-  if (a.screen === "intro") return `Exercice suivant : ${LIB[d.ex[a.ex].k].n}`;
-  const x = d.ex[a.ex], saveSet = G.set; G.set = a.set; const p = prefill(x, a.set); G.set = saveSet;
+  const list = exs();
+  if (a.screen === "intro") return `Exercice suivant : ${LIB[list[a.ex].k].n}`;
+  const x = list[a.ex], saveSet = G.set; G.set = a.set; const p = prefill(x, a.set); G.set = saveSet;
   return `Série ${a.set + 1} · ${isPdc(x.k) ? p.r + " reps" : `${fmtN(p.w || 0)} kg × ${p.r}`}`;
 }
 function screenRest(resumed) {
@@ -509,7 +585,7 @@ function screenRest(resumed) {
     <div class="rest-wrap shake-host">
       <div class="glow"></div>
       <svg class="ring" viewBox="0 0 320 320" aria-hidden="true"><circle class="tr" cx="160" cy="160" r="140"/><circle class="pr" id="r-ring" cx="160" cy="160" r="140" stroke-dasharray="879.65" stroke-dashoffset="0"/></svg>
-      <div class="rest-num"><span class="shake"><span class="t d num" id="r-time" role="timer">${mmss(Math.max(0, Math.ceil((G.restEnd - Date.now()) / 1000)))}</span></span><span class="muted" style="font-size:14px">sur ${mmss(G.restTotal)}</span></div>
+      <div class="rest-num"><span class="grow"><span class="shake"><span class="t d num" id="r-time" role="timer">${mmss(Math.max(0, Math.ceil((G.restEnd - Date.now()) / 1000)))}</span></span></span><span class="muted" style="font-size:14px">sur ${mmss(G.restTotal)}</span></div>
     </div>
     <div class="card next"><div class="eyebrow">Ensuite</div><div style="font-size:17px;font-weight:600;margin-top:2px">${esc(restNextText(G.after))}</div></div>
     <div class="push"><div class="rest-btns">
@@ -542,7 +618,7 @@ function tick(el) {
   }
 }
 function proceed() {
-  clearInterval(timer); timer = null;
+  clearInterval(timer); timer = null; native("cancelRest");
   const a = G.after || { screen: "set", ex: G.ex, set: firstPending(curX()) };
   G.ex = a.ex; G.set = Math.max(0, a.set); delete G.restEnd; delete G.after;
   goto(a.screen);
@@ -557,7 +633,7 @@ function screenDone() {
   const d = day(), l = doc();
   topbar("Bilan");
   let sets = 0, vol = 0; const recs = [];
-  d.ex.forEach(x => {
+  exs().forEach(x => {
     const a = doneSets(l.ex[x.k]); sets += a.length; a.forEach(s => vol += (s.w || 0) * s.r);
     const b = bestOf(x.k, G.docId), top = a.reduce((m, s) => !m || e1rm(s) > e1rm(m) ? s : m, null);
     if (b && top && e1rm(top) > b.v + 0.01) recs.push(`${LIB[x.k].n} : ${isPdc(x.k) ? top.r + " reps" : fmtW(top.w) + " × " + top.r}`);
@@ -578,6 +654,10 @@ function screenDone() {
 
 // ---------- Sauvegarde ----------
 function exportData() {
+  if (NATIVE) {
+    native("exportData", JSON.stringify({ app: "notch", version: 1, exportedAt: new Date().toISOString(), logs: DB.logs, body: DB.body, prefs: DB.prefs }, null, 2), `notch-sauvegarde-${today()}.json`);
+    DB.lastExport = today(); save(); render(); return;
+  }
   const blob = new Blob([JSON.stringify({ app: "notch", version: 1, exportedAt: new Date().toISOString(), logs: DB.logs, body: DB.body }, null, 2)], { type: "application/json" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = `notch-sauvegarde-${today()}.json`;
@@ -591,12 +671,54 @@ function importData(file) {
     try {
       const o = JSON.parse(fr.result);
       if (!o || o.app !== "notch" || typeof o.logs !== "object" || typeof o.body !== "object") throw new Error();
-      Object.assign(DB.logs, o.logs); Object.assign(DB.body, o.body); save(); render();
+      Object.assign(DB.logs, o.logs); Object.assign(DB.body, o.body);
+      if (o.prefs && o.prefs.swaps) Object.assign(DB.prefs.swaps, o.prefs.swaps);
+      save(); render();
       toast(`Importé : ${Object.keys(o.logs).length} séances, ${Object.keys(o.body).length} mesures`);
     } catch (e) { toast("Ce fichier n’est pas une sauvegarde Notch"); }
   };
   fr.readAsText(file);
 }
+
+// ---------- Widgets Android ----------
+// On envoie le planning et les séances faites : le widget calcule lui-même la séance du jour.
+let widgetTimer = null;
+function pushWidgets() {
+  if (!NATIVE) return;
+  clearTimeout(widgetTimer);
+  widgetTimer = setTimeout(() => {
+    const since = new Date(); since.setDate(since.getDate() - 21);
+    const sinceKey = dkey(since);
+    const doneList = Object.values(DB.logs).filter(l => l.date >= sinceKey && hasSets(l)).map(l => ({ date: l.date, day: l.day, finished: !!l.finished }));
+    const plan = DAYS.map(d => { const list = exList(d.id); return { id: d.id, wd: d.wd, title: d.title, tab: d.tab, tag: d.tag, ex: list.length, mins: estimate(d), first: LIB[list[0].k].n }; });
+    const alerts = [];
+    programKeys().forEach((x, k) => { const c = coach(x); if (c.type === "monte" || c.type === "stagne") alerts.push({ ex: LIB[k].n, type: c.type, label: c.label, text: c.text }); });
+    alerts.sort((a, b) => (a.type === "stagne") - (b.type === "stagne"));
+    let coachOut = alerts[0];
+    if (!coachOut) {
+      const wi = weekIdx(), d = DAYS.find(x => x.wd === wi + 1) || DAYS.find(x => x.wd > wi + 1) || DAYS[0];
+      const x = exList(d.id)[0], c = coach(x);
+      coachOut = { ex: LIB[x.k].n, type: c.type, label: c.label, text: c.text };
+    }
+    native("updateWidgets", JSON.stringify({ plan, done: doneList, active: G ? { date: DB.logs[G.docId] && DB.logs[G.docId].date, day: G.dayId } : null, coach: coachOut, more: Math.max(0, alerts.length - 1) }));
+  }, 300);
+}
+
+// Appelé par l'appli Android : widget « Commencer », raccourcis, bouton retour
+window.notchOpen = action => {
+  if (!action) return;
+  if (action.startsWith("start:")) { const id = action.slice(6); if (dayById(id)) openSession(id); }
+  else if (action === "today") { const wi = weekIdx(); const d = (G && dayById(G.dayId)) || DAYS.find(x => x.wd === wi + 1) || DAYS.find(x => x.wd > wi + 1) || DAYS[0]; openSession(d.id); }
+  else if (action.startsWith("view:")) { if (!$("session").hidden) closeSession(); show(action.slice(5)); }
+};
+window.notchBack = () => {
+  if (!$("session").hidden) {
+    if (G && (G.screen === "swap")) { goto("intro"); return true; }
+    closeSession(); return true;
+  }
+  if (VIEW !== "accueil") { show("accueil"); return true; }
+  return false;
+};
 
 // ---------- Toast ----------
 let tT = null;
@@ -612,17 +734,20 @@ document.addEventListener("click", e => {
   if (a === "export") return exportData();
   if (a === "import") return $("import-file").click();
   if (a === "del") { const id = b.dataset.id; if (ARMED === id) { ARMED = null; delete DB.body[id]; save(); } else ARMED = id; return renderBody(); }
+  if (a === "unswap") { delete DB.prefs.swaps[b.dataset.day + ":" + b.dataset.i]; save(); return renderProgram(); }
   if (!G) return;
   if (a === "begin") { const j = firstPending(curX()); G.set = j < 0 ? 0 : j; return goto("set"); }
   if (a === "intro") return goto("intro");
   if (a === "validate") return validate();
   if (a === "edit") { G.set = +b.dataset.j; return goto("set"); }
-  if (a === "jump") { clearInterval(timer); timer = null; delete G.restEnd; delete G.after; G.ex = +b.dataset.i; G.set = Math.max(0, firstPending(curX())); return goto("intro"); }
+  if (a === "swap") return goto("swap");
+  if (a === "pick") return pickSwap(b.dataset.k);
+  if (a === "jump") { clearInterval(timer); timer = null; native("cancelRest"); delete G.restEnd; delete G.after; G.ex = +b.dataset.i; G.set = Math.max(0, firstPending(curX())); return goto("intro"); }
   if (a === "step") {
     const inp = $("in-" + b.dataset.f), cur = num(inp.value) || 0, nv = Math.max(0, Math.round((cur + parseFloat(b.dataset.d)) * 10) / 10);
     inp.value = b.dataset.f === "r" ? String(Math.max(1, Math.round(nv))) : fmtN(nv); vibrate(8); return;
   }
-  if (a === "plus") { G.restEnd = Math.max(G.restEnd, Date.now()) + 15000; G.restTotal += 15; saveG(); if (!timer) { const el = $("stage").querySelector(".screen:not(.leave)"); el.classList.remove("go"); timer = setInterval(() => tick(el), 200); } return; }
+  if (a === "plus") { G.restEnd = Math.max(G.restEnd, Date.now()) + 15000; G.restTotal += 15; saveG(); scheduleNativeRest(); if (!timer) { const el = $("stage").querySelector(".screen:not(.leave)"); el.classList.remove("go"); timer = setInterval(() => tick(el), 200); } return; }
   if (a === "skip") return proceed();
   if (a === "home") { G = null; saveG(); closeSession(); return show("accueil"); }
 });
@@ -647,3 +772,4 @@ window.addEventListener("hashchange", () => { const h = location.hash.slice(1); 
 // ---------- Démarrage ----------
 load(); loadG();
 show(location.hash.slice(1) || "accueil");
+pushWidgets();
