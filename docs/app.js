@@ -949,32 +949,39 @@ function closeSheet(instant) {
   setTimeout(() => s.wrap.remove(), 340);
 }
 function sheetDrag(S) {
-  const el = S.sheet;
+  const el = S.sheet, inner = el.querySelector(".sheet-in");
   let st = null;
   el.addEventListener("click", ev => { if (Date.now() - S.dragEnd < 350) { ev.stopPropagation(); ev.preventDefault(); } }, true);
-  el.addEventListener("pointerdown", e => {
-    if (e.target.closest("input[type=time]")) return;
-    st = { id: e.pointerId, x0: e.clientX, y0: e.clientY, hist: [{ y: e.clientY, t: e.timeStamp }], dir: null, dy: 0 };
-  });
-  el.addEventListener("pointermove", e => {
-    if (!st || e.pointerId !== st.id) return;
-    const dx = e.clientX - st.x0, dy = e.clientY - st.y0;
-    if (!st.dir) {
-      if (Math.hypot(dx, dy) < 10) return;
-      const inner = el.querySelector(".sheet-in");
-      st.dir = Math.abs(dy) > Math.abs(dx) && dy > 0 && inner.scrollTop <= 0 ? "y" : "n";
-      if (st.dir !== "y") { st = null; return; }
-      el.setPointerCapture(e.pointerId);
-      el.style.transition = "none"; S.scrim.style.transition = "none";
+  // Le panneau suit le doigt vers le bas depuis n'importe où, tant que son contenu est tout en haut.
+  // Si le contenu défile et revient en haut pendant le même geste, le panneau prend le relais (comme sur iPhone).
+  const begin = (id, x, y, t) => { st = { id, x0: x, y0: y, yTop: null, hist: [{ y, t }], dir: null, dy: 0 }; };
+  const move = (x, y, t, ev) => {
+    if (!st) return;
+    const dx = x - st.x0, dy = y - st.y0;
+    if (st.dir !== "y") {
+      const atTop = inner.scrollTop <= 0;
+      if (atTop && st.yTop === null && st.dir === "n") st.yTop = y; // le contenu vient de revenir en haut
+      const ref = st.yTop !== null ? st.yTop : st.y0, d = y - ref;
+      if (atTop && d > 0 && (st.dir === "n" || Math.abs(d) >= Math.abs(dx))) {
+        if (ev && ev.cancelable) ev.preventDefault();       // empêche le défilement natif de démarrer
+        if (d < 6) return;
+        st.dir = "y"; st.y0 = ref + 6;
+        el.style.transition = "none"; S.scrim.style.transition = "none";
+      } else {
+        if (Math.hypot(dx, dy) > 10 && !st.dir) st.dir = "n"; // défilement normal du contenu
+        if (!atTop) st.yTop = null;
+        return;
+      }
     }
-    const h = el.offsetHeight, y = dy > 0 ? dy : -rubber(-dy, h) * 0.3;
-    st.dy = y;
-    el.style.transform = `translateY(${y}px)`;
-    S.scrim.style.opacity = String(Math.max(0, 1 - y / h));
-    st.hist.push({ y: e.clientY, t: e.timeStamp }); if (st.hist.length > 5) st.hist.shift();
-  });
-  const end = e => {
-    if (!st || e.pointerId !== st.id) return;
+    if (ev && ev.cancelable) ev.preventDefault();
+    const h = el.offsetHeight, d = y - st.y0, yy = d > 0 ? d : -rubber(-d, h) * 0.3;
+    st.dy = yy;
+    el.style.transform = `translateY(${yy}px)`;
+    S.scrim.style.opacity = String(Math.max(0, 1 - yy / h));
+    st.hist.push({ y, t }); if (st.hist.length > 5) st.hist.shift();
+  };
+  const end = () => {
+    if (!st) return;
     const s = st; st = null;
     if (s.dir !== "y") return;
     S.dragEnd = Date.now();
@@ -984,7 +991,16 @@ function sheetDrag(S) {
     if (s.dy + project(v, 0.99) > h * 0.4 || v > 700) closeSheet();
     else { el.style.transform = ""; S.scrim.style.opacity = ""; }
   };
-  el.addEventListener("pointerup", end); el.addEventListener("pointercancel", end);
+  const skip = target => target.closest("input[type=time], input[type=range]");
+  // Doigt : évènements tactiles, seuls à pouvoir bloquer le défilement natif d'Android
+  el.addEventListener("touchstart", e => { if (e.touches.length !== 1 || skip(e.target)) { st = null; return; } const t = e.touches[0]; begin(t.identifier, t.clientX, t.clientY, e.timeStamp); }, { passive: true });
+  el.addEventListener("touchmove", e => { const t = st && [...e.touches].find(x => x.identifier === st.id); if (t) move(t.clientX, t.clientY, e.timeStamp, e); }, { passive: false });
+  el.addEventListener("touchend", end); el.addEventListener("touchcancel", end);
+  // Souris (version web sur ordinateur)
+  el.addEventListener("pointerdown", e => { if (e.pointerType === "touch" || skip(e.target)) return; begin(e.pointerId, e.clientX, e.clientY, e.timeStamp); });
+  el.addEventListener("pointermove", e => { if (e.pointerType === "touch" || !st || e.pointerId !== st.id) return; if (st.dir === "y" && !el.hasPointerCapture(e.pointerId)) el.setPointerCapture(e.pointerId); move(e.clientX, e.clientY, e.timeStamp, null); });
+  el.addEventListener("pointerup", e => { if (e.pointerType !== "touch") end(); });
+  el.addEventListener("pointercancel", e => { if (e.pointerType !== "touch") end(); });
 }
 
 // ---------- Réglages ----------

@@ -54,7 +54,7 @@ Dans Progrès : ton niveau (un cran de plus avec tes séances, le premier en une
 
 - Glisser à gauche / droite pendant la séance : exercice suivant / précédent.
 - Tirer la barre du haut vers le bas : fermer la séance (elle reste en mémoire).
-- Les panneaux (variantes, réglages) se ferment en les tirant vers le bas.
+- Les panneaux (variantes, réglages…) se ferment en les tirant vers le bas, depuis n'importe où dans le panneau quand son contenu est tout en haut.
 - Appui long sur l'icône Notch : *Séance du jour*, *Noter mon poids*, *Mes progrès*.
 
 ## Pendant une séance

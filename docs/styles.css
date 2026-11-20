@@ -605,3 +605,6 @@ textarea { font: inherit; font-size: 16px; color: var(--ink); background: var(--
 
 /* La barre d'onglets sur sa propre couche : elle reste affichée pendant que les pages glissent dessous */
 .tabbar { transform: translateZ(0); will-change: transform; }
+
+/* Le défilement d'un panneau ne fait jamais défiler la page derrière */
+.sheet-in { overscroll-behavior: contain; }
