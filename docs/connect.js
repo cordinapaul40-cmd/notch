@@ -434,24 +434,140 @@ function cranNews() {
 function initSeen() { if (!DB.prefs.seen) { const c = crans(); DB.prefs.seen = { level: c.level, badges: c.badges.filter(b => b.ok).map(b => b.id) }; } }
 
 // ============================================================
-//  Animation d'ouverture : le logo monte ses marches (une fois par jour)
+//  Le logo devient ta séance : ouverture, lancement et fin de séance
+//  Même geste partout : la carte bleue de l'accueil grandit ou se replie.
 // ============================================================
+const EASE_IOS = "cubic-bezier(0.32, 0.72, 0, 1)";
+const EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)";
+const box = r => ({ left: r.left + "px", top: r.top + "px", width: r.width + "px", height: r.height + "px" });
+const fullBox = () => ({ left: "0px", top: "0px", width: innerWidth + "px", height: innerHeight + "px" });
+const STEPS_PATH = "M14 44 H26 V34 H38 V24 H50";
+
+// Moment où l'appli a été quittée : sert à ne pas rejouer l'ouverture si Android l'a fermée en arrière-plan
+const markHidden = () => { try { localStorage.setItem("notch-hidden", String(Date.now())); } catch (e) {} };
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") markHidden(); });
+window.addEventListener("pagehide", markHidden);
+
+// Ouverture : les marches se dessinent, puis le logo devient la carte de ta séance.
+// À chaque lancement, sauf : ouverture depuis un widget ou une notification, appli quittée il y a moins de 2 min,
+// mouvements réduits dans les réglages Android. Un appui la coupe.
+let INTRO = null;
 function openingIntro() {
-  if (REDUCED) return;
-  let last = null;
-  try { last = localStorage.getItem("notch-intro"); } catch (e) {}
-  if (last === today()) return;
-  try { localStorage.setItem("notch-intro", today()); } catch (e) {}
-  const app = document.querySelector(".app"), el = document.createElement("div");
-  el.className = "intro"; el.setAttribute("aria-hidden", "true");
-  el.innerHTML = `<svg viewBox="0 0 64 64" width="96" height="96"><rect width="64" height="64" rx="16" fill="var(--accent)"/><path class="draw" pathLength="1" d="M14 44 H26 V34 H38 V24 H50" fill="none" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-  document.body.appendChild(el); app.classList.add("arrive-wait");
+  if (REDUCED || VIEW !== "accueil" || /[?&]action=/.test(location.search)) return;
+  let hid = 0;
+  try { hid = +localStorage.getItem("notch-hidden") || 0; } catch (e) {}
+  if (Date.now() - hid < 120000) return;
+  const hero = document.querySelector("#v-accueil .hero");
+  if (!hero) return;
+  const r = hero.getBoundingClientRect();
+  const others = [...document.querySelectorAll("#v-accueil > :not(.hero)"), document.querySelector(".tabbar")].filter(Boolean);
+  const bg = document.createElement("div"), mo = document.createElement("div");
+  bg.className = "intro-bg"; mo.className = "intro-mo";
+  bg.setAttribute("aria-hidden", "true"); mo.setAttribute("aria-hidden", "true");
+  mo.innerHTML = `<svg viewBox="0 0 64 64" width="72" height="72"><path pathLength="1" d="${STEPS_PATH}" fill="none" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  const S = 96, start = { left: (innerWidth - S) / 2 + "px", top: (innerHeight - S) / 2 + "px", width: S + "px", height: S + "px" };
+  Object.assign(mo.style, start);
+  document.body.append(bg, mo);
+  hero.style.opacity = "0"; others.forEach(e => e.style.opacity = "0");
+  const svg = mo.firstChild, path = svg.firstChild, anims = [], timers = [];
+  let done = false;
   const end = () => {
-    if (el.classList.contains("out")) return;
-    el.classList.add("out"); app.classList.remove("arrive-wait"); app.classList.add("arrive");
-    setTimeout(() => { el.remove(); app.classList.remove("arrive"); }, 450);
+    if (done) return; done = true; INTRO = null;
+    anims.forEach(a => a.cancel()); timers.forEach(clearTimeout);
+    hero.style.opacity = "";
+    others.forEach((e, i) => { e.style.opacity = ""; e.animate([{ opacity: 0, transform: "translateY(12px)" }, { opacity: 1, transform: "none" }], { duration: 320, delay: 30 * i, easing: EASE_OUT, fill: "backwards" }); });
+    bg.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 180, fill: "forwards" }).onfinish = () => bg.remove();
+    mo.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 160, fill: "forwards" }).onfinish = () => mo.remove();
   };
-  requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add("on")));
-  el.addEventListener("pointerdown", end);
-  setTimeout(end, 800);
+  INTRO = { end };
+  // 1. Le carré arrive et les marches se dessinent (0 → 0,55 s)
+  anims.push(mo.animate([{ transform: "scale(.88)" }, { transform: "none" }], { duration: 300, easing: EASE_OUT, fill: "both" }));
+  anims.push(path.animate([{ strokeDasharray: 1, strokeDashoffset: 1 }, { strokeDasharray: 1, strokeDashoffset: 0 }], { duration: 440, delay: 90, easing: EASE_OUT, fill: "both" }));
+  // 2. Le carré devient la carte de la séance (0,6 → 1,1 s)
+  timers.push(setTimeout(() => {
+    if (done) return;
+    anims.push(svg.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: "scale(.7)" }], { duration: 200, easing: "ease-in", fill: "forwards" }));
+    const m = mo.animate([{ ...start, borderRadius: "24px" }, { ...box(r), borderRadius: "28px" }], { duration: 500, easing: EASE_IOS, fill: "forwards" });
+    anims.push(m);
+    m.onfinish = end;
+  }, 600));
+  bg.addEventListener("pointerdown", end); mo.addEventListener("pointerdown", end);
+  timers.push(setTimeout(end, 1600)); // filet de sécurité
+}
+
+// « Commencer » : la carte bleue s'agrandit et devient l'écran de l'exercice
+function morphToSession(dayId) {
+  const hero = document.querySelector("#v-accueil .hero");
+  if (REDUCED || !hero || VIEW !== "accueil") return openSession(dayId);
+  const r = hero.getBoundingClientRect();
+  const m = document.createElement("div");
+  m.className = "morph"; m.setAttribute("aria-hidden", "true");
+  m.innerHTML = `<i class="morph-lt"></i>`;
+  Object.assign(m.style, box(r), { borderRadius: "28px" });
+  document.body.appendChild(m);
+  vibrate(10);
+  let opened = false;
+  const go = () => {
+    if (opened) return; opened = true;
+    openSession(dayId);
+    m.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 200, easing: "ease-out", fill: "forwards" }).onfinish = () => m.remove();
+  };
+  m.animate([{ ...box(r), borderRadius: "28px" }, { ...fullBox(), borderRadius: "0px" }], { duration: 420, easing: EASE_IOS, fill: "forwards" }).onfinish = go;
+  m.firstChild.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 180, delay: 250, fill: "both" });
+  setTimeout(go, 700);
+}
+
+// « Retour à l'accueil » : le bilan se replie dans la carte, le point du jour s'allume
+function morphToHome() {
+  const finish = () => { G = null; saveG(); closeSession(); show("accueil"); };
+  if (REDUCED) return finish();
+  const m = document.createElement("div");
+  m.className = "morph morph-back"; m.setAttribute("aria-hidden", "true");
+  m.innerHTML = `<i class="morph-blue"></i>`;
+  Object.assign(m.style, fullBox(), { borderRadius: "0px" });
+  document.body.appendChild(m);
+  finish();
+  const hero = document.querySelector("#v-accueil .hero");
+  if (!hero) { m.remove(); return; }
+  const r = hero.getBoundingClientRect();
+  const others = [...document.querySelectorAll("#v-accueil > :not(.hero)")];
+  hero.style.opacity = "0"; others.forEach(e => e.style.opacity = "0");
+  m.firstChild.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 240, delay: 60, fill: "both" });
+  let shown = false;
+  const land = () => {
+    if (shown) return; shown = true;
+    hero.style.opacity = "";
+    m.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 160, fill: "forwards" }).onfinish = () => m.remove();
+    others.forEach((e, i) => { e.style.opacity = ""; e.animate([{ opacity: 0, transform: "translateY(12px)" }, { opacity: 1, transform: "none" }], { duration: 320, delay: 40 * i, easing: EASE_OUT, fill: "backwards" }); });
+    // La semaine avance : le point du jour s'allume, le compteur se met à jour
+    const dot = hero.querySelector(".dot-d.now.done");
+    if (dot) dot.animate([{ transform: "scale(1)" }, { transform: "scale(1.7)" }, { transform: "scale(1)" }], { duration: 460, delay: 120, easing: "cubic-bezier(.34,1.56,.64,1)" });
+    const cnt = hero.querySelector(".week-dots span");
+    if (cnt) cnt.animate([{ opacity: 0, transform: "translateY(6px)" }, { opacity: 1, transform: "none" }], { duration: 300, delay: 180, easing: EASE_OUT, fill: "backwards" });
+    vibrate([10, 60, 14]);
+  };
+  m.animate([{ ...fullBox(), borderRadius: "0px" }, { ...box(r), borderRadius: "28px" }], { duration: 460, easing: EASE_IOS, fill: "forwards" }).onfinish = land;
+  setTimeout(land, 800);
+}
+
+// Le coach te fait monter d'un cran : la charge défile jusqu'à sa nouvelle valeur
+function cranUpChip(step, animate) {
+  return `<div class="cran-up${animate ? " pre" : ""}" id="cran-up"><svg width="26" height="18" viewBox="0 0 64 42" aria-hidden="true"><path class="dr" pathLength="1" d="M4 36 H18 V26 H32 V16 H46 V6 H60" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></svg>Monte d’un cran : +${fmtN(step)} kg</div>`;
+}
+function rollWeight(el, k, from, to) {
+  const inp = el.querySelector("#in-w"), chip = el.querySelector("#cran-up");
+  if (!inp) return;
+  inp.value = fmtN(from); inp.dataset.to = fmtN(to); // une série validée pendant l'animation prend la bonne charge
+  const pl = el.querySelector("#plates"); if (pl) pl.innerHTML = platesHTML(k, from);
+  setTimeout(() => {
+    if (!inp.isConnected) return;
+    inp.animate([{ transform: "none", opacity: 1 }, { transform: "translateY(-55%)", opacity: 0 }], { duration: 170, easing: "ease-in" }).onfinish = () => {
+      inp.value = fmtN(to); delete inp.dataset.to; inp.classList.add("bumped");
+      if (pl) pl.innerHTML = platesHTML(k, to);
+      inp.animate([{ transform: "translateY(55%)", opacity: 0 }, { transform: "none", opacity: 1 }], { duration: 300, easing: "cubic-bezier(.34,1.4,.64,1)" });
+      if (chip) { chip.classList.remove("pre"); chip.classList.add("go"); }
+      vibrate([12, 40, 12]); announce(`Le coach te fait monter d’un cran : ${fmtN(to)} kilos`); liveUpdate();
+      setTimeout(() => inp.classList.remove("bumped"), 1800);
+    };
+  }, 480);
 }

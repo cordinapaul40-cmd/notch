@@ -681,8 +681,11 @@ function screenSet() {
     if (s) return `<button type="button" class="ok" data-act="edit" data-j="${i}" aria-label="Modifier la série ${i + 1}">${isPdc(x.k) ? s.r + " reps" : `${s.r} × ${fmtN(s.w)}`}</button>`;
     return `<button type="button" disabled aria-label="Série ${i + 1} à venir"></button>`;
   }).join("");
-  const hint = { edit: "Tu modifies une série déjà faite.", prev: "Repris de ta série précédente.", coach: "Le coach te fait monter d’un cran.", hist: "Repris de ta dernière séance.", start: "Charge de départ du programme." }[p.from];
-  transition(`
+  const hint = { edit: "Tu modifies une série déjà faite.", prev: "Repris de ta série précédente.", coach: "10 répétitions partout la dernière fois : le coach augmente la charge.", hist: "Repris de ta dernière séance.", start: "Charge de départ du programme." }[p.from];
+  // Montée d'un cran : la charge défile la première fois qu'on la voit dans la séance
+  const up = p.from === "coach" && !isPdc(x.k) ? STEP[L.t] : 0;
+  const rollIt = up && !REDUCED && !(G.rolled && G.rolled[x.k]);
+  const el = transition(`
     <div class="big-set"><span class="d n up">Série ${j + 1}</span><span class="d of">/ ${x.sets}</span></div>
     ${DB.prefs.notes[x.k] ? `<button type="button" class="note-line" data-act="note" data-k="${x.k}"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>${esc(DB.prefs.notes[x.k])}</button>` : ""}
     <div class="sets" style="--n:${x.sets}">${chips}</div>
@@ -691,6 +694,7 @@ function screenSet() {
       <button type="button" data-act="step" data-f="w" data-d="-${STEP[L.t]}" aria-label="Moins ${fmtN(STEP[L.t])} kg">−</button>
       <label class="mid" for="in-w"><span>Charge</span><input id="in-w" type="text" inputmode="decimal" value="${p.w === "" || p.w == null ? "" : fmtN(p.w)}" placeholder="0"><span class="unit">${unitOf(x.k)}</span></label>
       <button type="button" data-act="step" data-f="w" data-d="${STEP[L.t]}" aria-label="Plus ${fmtN(STEP[L.t])} kg">+</button></div>
+    ${up ? cranUpChip(up, rollIt) : ""}
     <div id="plates" aria-live="polite">${platesHTML(x.k, p.w)}</div>`}
     <div class="stepper">
       <button type="button" data-act="step" data-f="r" data-d="-1" aria-label="Une répétition de moins">−</button>
@@ -702,10 +706,12 @@ function screenSet() {
       <button class="link" style="background:none;border:none" type="button" data-act="intro">Revoir le geste</button>
       <button class="btn-main" type="button" data-act="validate"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Série validée</button>
     </div>`);
+  if (rollIt) { G.rolled = Object.assign({}, G.rolled, { [x.k]: 1 }); saveG(); rollWeight(el, x.k, num(p.w) - up, num(p.w)); }
 }
 
 function validate() {
   const x = curX(), L = LIB[x.k], j = G.set;
+  if ($("in-w") && $("in-w").dataset.to) $("in-w").value = $("in-w").dataset.to; // charge en train de défiler
   const w = isPdc(x.k) ? 0 : num($("in-w").value), r = parseInt($("in-r").value, 10);
   if (w == null) return toast("Indique la charge");
   if (!(r > 0)) return toast("Indique le nombre de répétitions");
@@ -1171,6 +1177,7 @@ function pushWidgets() {
 // Appelé par l'appli Android : widget « Commencer », raccourcis, bouton retour
 window.notchOpen = action => {
   if (!action) return;
+  if (INTRO) INTRO.end();
   if (action.startsWith("start:")) { const id = action.slice(6); if (dayById(id)) openSession(id); }
   else if (action === "today") { const wi = weekIdx(); const d = (G && dayById(G.dayId)) || DAYS.find(x => x.wd === wi + 1) || DAYS.find(x => x.wd > wi + 1) || DAYS[0]; openSession(d.id); }
   else if (action.startsWith("view:")) { if (!$("session").hidden) closeSession(); show(action.slice(5)); }
@@ -1194,7 +1201,7 @@ document.addEventListener("click", e => {
   const v = e.target.closest("[data-view]"); if (v) return show(v.dataset.view);
   const b = e.target.closest("[data-act]"); if (!b) return;
   const a = b.dataset.act;
-  if (a === "open") { closeSheet(true); return openSession(b.dataset.day); }
+  if (a === "open") { closeSheet(true); return b.closest(".hero") ? morphToSession(b.dataset.day) : openSession(b.dataset.day); }
   if (a === "ptab") { PTAB = b.dataset.day; return renderProgram(); }
   if (a === "export") return exportData();
   if (a === "import") return $("import-file").click();
@@ -1224,7 +1231,7 @@ document.addEventListener("click", e => {
   }
   if (a === "plus") return addRest(15);
   if (a === "skip") return proceed();
-  if (a === "home") { G = null; saveG(); closeSession(); return show("accueil"); }
+  if (a === "home") return morphToHome();
 });
 $("s-quit").addEventListener("click", closeSession);
 $("import-file").addEventListener("change", e => { const f = e.target.files[0]; if (f) importData(f); e.target.value = ""; });
@@ -1259,9 +1266,9 @@ window.addEventListener("hashchange", () => { const h = location.hash.slice(1); 
 
 // ---------- Démarrage ----------
 load(); loadG(); applyPrefs(); initSeen();
-openingIntro();
 setupGestures();
 show(location.hash.slice(1) || "accueil");
+openingIntro();
 pushWidgets();
 calSync();
 // À minuit, l'accueil passe tout seul au jour suivant

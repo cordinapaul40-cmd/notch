@@ -33,6 +33,8 @@ Tout se règle dans Réglages (roue dentée sur l'accueil), avec aussi « Rédui
 
 ## Les crans
 
+**Animations** : à chaque lancement, les marches du logo se dessinent puis le logo devient la carte de ta séance (pas d'animation depuis un widget ou une notification, ni si tu as quitté l'appli il y a moins de 2 minutes ; un appui la coupe). « Commencer » agrandit la carte en écran d'exercice, « Retour à l'accueil » replie le bilan dans la carte et allume le point du jour. Quand le coach te fait monter, la charge défile jusqu'à sa nouvelle valeur.
+
 Dans Progrès : ton niveau (un cran de plus avec tes séances, le premier en une semaine) et 14 badges qui récompensent la régularité et les progrès (semaines complètes, records, stagnation cassée, kilos perdus). Les nouveautés s'affichent dans le bilan de séance.
 
 ## Gestes

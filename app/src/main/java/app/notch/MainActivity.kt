@@ -123,7 +123,8 @@ class MainActivity : ComponentActivity() {
         setContentView(web)
         styleBars()
         pendingAction = actionFrom(intent)
-        web.loadUrl("https://appassets.androidplatform.net/assets/index.html")
+        // Ouverture depuis un widget ou une notification : pas d'animation d'ouverture
+        web.loadUrl("https://appassets.androidplatform.net/assets/index.html" + if (pendingAction != null) "?action=1" else "")
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
