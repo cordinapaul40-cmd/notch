@@ -232,10 +232,10 @@ function show(v, from = null) {
   const el = $("v-" + v);
   el.style.transition = "none"; el.style.transform = ""; el.style.opacity = "";
   if (from && !REDUCED) {
-    el.style.transform = `translateX(${from === "right" ? 32 : -32}%)`; el.style.opacity = "0";
+    el.style.transform = `translateX(${from === "right" ? 40 : -40}%)`;
     void el.offsetHeight;
-    el.style.transition = "transform 280ms var(--ease), opacity 200ms ease";
-    el.style.transform = ""; el.style.opacity = "";
+    el.style.transition = "transform 300ms var(--ease)";
+    el.style.transform = "";
   }
   document.querySelectorAll(".tb").forEach(b => b.dataset.view === v ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current"));
   pillTo(VIEWS.indexOf(v));
@@ -1107,8 +1107,7 @@ function setupGestures() {
     const x = blocked ? Math.sign(dx) * rubber(Math.abs(dx), W) : dx;
     vs.dx = x;
     vs.el.style.transform = `translateX(${x}px)`;
-    vs.el.style.opacity = String(1 - Math.min(0.5, Math.abs(x) / W * 0.7));
-    if (!blocked) pillFollow(i, -x / W * 1.6);
+    if (!blocked) pillFollow(i, -x / W);
     vs.hist.push({ x: e.clientX, t: e.timeStamp }); if (vs.hist.length > 5) vs.hist.shift();
   });
   const vend = e => {
@@ -1121,7 +1120,7 @@ function setupGestures() {
     if (proj < -W * 0.28 && i < VIEWS.length - 1) dir = 1;
     else if (proj > W * 0.28 && i > 0) dir = -1;
     if (dir) { s.el.style.transform = ""; s.el.style.opacity = ""; vibrate(8); show(VIEWS[i + dir], dir > 0 ? "right" : "left"); }
-    else spring({ from: s.dx, to: 0, velocity: v, response: 0.28, onUpdate: x => { s.el.style.transform = `translateX(${x}px)`; s.el.style.opacity = String(1 - Math.min(0.5, Math.abs(x) / W * 0.7)); },
+    else spring({ from: s.dx, to: 0, velocity: v, response: 0.28, onUpdate: x => { s.el.style.transform = `translateX(${x}px)`; },
       onDone: () => { s.el.style.transform = ""; s.el.style.opacity = ""; s.el.style.transition = ""; } });
   };
   app.addEventListener("pointerup", vend); app.addEventListener("pointercancel", vend);

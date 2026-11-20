@@ -41,6 +41,8 @@ function pillTo(i, animate = true) {
 // Pendant le glissement entre pages : le bord de tête avance vite, celui de queue suit plus tard
 function pillFollow(i, p) {
   if (!PILL || REDUCED) return;
+  // Une animation encore en cours écraserait la position suivie au doigt
+  PILL.getAnimations().forEach(a => a.cancel());
   const j = i + Math.sign(p), a = tabBox(i), b = tabBox(j);
   if (!a || !b) return;
   const q = Math.min(1, Math.abs(p));
