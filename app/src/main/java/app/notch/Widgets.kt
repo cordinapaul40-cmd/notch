@@ -46,6 +46,7 @@ private object NC {
     val white80 = c(0xCCFFFFFF)
     val white35 = c(0x59FFFFFF)
     val white15 = c(0x26FFFFFF)
+    val amber = c(0xFFF2B94B)
     val black = c(0xFF0A0B0D)
     val surface = c(0xFFFFFFFF, 0xFF15171B)
     val ink = c(0xFF0B0C0E, 0xFFF4F5F6)
@@ -89,7 +90,7 @@ data class NextInfo(
     val sub: String,
     val dayId: String,
     val button: String?,
-    val dots: List<Int>,   // 0 repos · 1 prévu · 2 fait
+    val dots: List<Int>,   // 0 repos · 1 prévu · 2 fait · 3 ratée
     val todayIndex: Int,
     val count: Int,
 )
@@ -123,10 +124,17 @@ fun computeNext(o: JSONObject): NextInfo? {
     val label: String
     val button: String?
     val todays = plan.firstOrNull { it.wd == wd }
+    // Séances prévues plus tôt dans la semaine et pas faites
+    val missed = plan.filter { it.wd < wd && it.id !in weekDone }
     if (activePlan != null && activePlan.id !in finishedToday) {
         target = activePlan; label = "Séance en cours"; button = "Reprendre"
     } else if (todays != null && todays.id !in finishedToday) {
-        target = todays; label = "Aujourd’hui"; button = "Commencer"
+        target = todays
+        val m = missed.lastOrNull()
+        label = if (m != null) "Aujourd’hui · ${m.title} ratée" else "Aujourd’hui"
+        button = "Commencer"
+    } else if (todays == null && missed.isNotEmpty()) {
+        target = missed.last(); label = "Rattrapage · prévue " + DAY_NAMES[target.wd - 1]; button = "Rattraper"
     } else {
         val next = plan.firstOrNull { it.wd > wd } ?: plan.first()
         target = next
@@ -138,6 +146,7 @@ fun computeNext(o: JSONObject): NextInfo? {
         when {
             p == null -> 0
             p.id in weekDone -> 2
+            p.wd < wd -> 3
             else -> 1
         }
     }
@@ -191,7 +200,7 @@ private fun NextContent(context: Context, info: NextInfo?) {
             Spacer(GlanceModifier.defaultWeight())
             Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 info.dots.forEachIndexed { i, state ->
-                    val color = when (state) { 2 -> NC.white; 1 -> NC.white35; else -> NC.white15 }
+                    val color = when (state) { 2 -> NC.white; 3 -> NC.amber; 1 -> NC.white35; else -> NC.white15 }
                     Box(
                         modifier = GlanceModifier
                             .size(width = 10.dp, height = if (i == info.todayIndex) 18.dp else 10.dp)

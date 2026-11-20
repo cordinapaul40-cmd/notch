@@ -115,7 +115,9 @@ function exList(dayId, docId) {
 }
 let G = null; // séance en cours
 function saveG() { try { G ? localStorage.setItem(KEY_S, JSON.stringify(G)) : localStorage.removeItem(KEY_S); } catch (e) {} }
-function loadG() { try { G = JSON.parse(localStorage.getItem(KEY_S) || "null"); } catch (e) { G = null; } if (G && !DB.logs[G.docId]) G = null; }
+function loadG() { try { G = JSON.parse(localStorage.getItem(KEY_S) || "null"); } catch (e) { G = null; } dropStaleG(); }
+// Une séance d'un autre jour ne peut plus être reprise : on l'oublie (ce qui a été fait reste enregistré)
+function dropStaleG() { if (G && (!DB.logs[G.docId] || DB.logs[G.docId].date !== today())) { G = null; saveG(); } }
 
 // ---------- Historique, records, coach ----------
 function sessionsWith(k, exclude) {
@@ -234,21 +236,35 @@ function render() { ({ accueil: renderHome, programme: renderProgram, progres: r
 // ---------- Accueil (proposition A · Focus) ----------
 // Un seul but : lancer la séance. Tout le reste est à un geste.
 function renderHome() {
-  const t = today(), wi = weekIdx(), mon = mondayKey();
-  const todayDay = DAYS.find(d => d.wd === (wi + 1));
-  const nextDay = todayDay || DAYS.find(d => d.wd > wi + 1) || DAYS[0];
-  const active = G && DB.logs[G.docId] && !DB.logs[G.docId].finished ? dayById(G.dayId) : null;
-  const d = active || nextDay;
-  const finished = !active && DB.logs[t + "_" + d.id] && DB.logs[t + "_" + d.id].finished;
-  const after = finished ? (DAYS.find(x => x.wd > wi + 1) || DAYS[0]) : null;
+  const t = today(), wi = weekIdx(), mon = mondayKey(), wdNow = wi + 1;
   const weekDone = new Set(Object.values(DB.logs).filter(l => l.date >= mon && hasSets(l)).map(l => l.day));
+  const doneToday = new Set(Object.values(DB.logs).filter(l => l.date === t && l.finished).map(l => l.day));
+  // Une séance « en cours » ne vaut que pour aujourd'hui
+  const active = G && DB.logs[G.docId] && DB.logs[G.docId].date === t && !DB.logs[G.docId].finished ? dayById(G.dayId) : null;
+  // Séances prévues plus tôt dans la semaine et pas faites
+  const missed = DAYS.filter(x => x.wd < wdNow && !weekDone.has(x.id));
+  const lastMissed = missed[missed.length - 1] || null;
+  const todayDay = DAYS.find(x => x.wd === wdNow);
+  const nextDay = DAYS.find(x => x.wd > wdNow) || DAYS[0];
+
+  // mode : en cours · aujourd'hui · rattrapage (jour de repos) · faite · prochaine
+  let d, mode;
+  if (active) { d = active; mode = "active"; }
+  else if (todayDay && !doneToday.has(todayDay.id)) { d = todayDay; mode = "today"; }
+  else if (!todayDay && lastMissed) { d = lastMissed; mode = "catchup"; }
+  else if (todayDay) { d = nextDay; mode = "done"; }
+  else { d = nextDay; mode = "next"; }
+
+  const whenMissed = x => x.wd === wdNow - 1 ? "hier" : x.day.toLowerCase();
   const dots = Array.from({ length: 7 }, (_, i) => {
     const day = DAYS.find(x => x.wd === i + 1);
-    const cls = !day ? "off" : (weekDone.has(day.id) ? "done" : "plan");
+    const cls = !day ? "off" : (weekDone.has(day.id) ? "done" : (missed.includes(day) ? "miss" : "plan"));
     return `<i class="dot-d ${cls}${i === wi ? " now" : ""}"></i>`;
   }).join("");
+  const countTxt = `${weekDone.size} / 4 cette semaine${missed.length ? ` · ${missed.length} ratée${missed.length > 1 ? "s" : ""}` : ""}`;
+  const eyebrow = { active: "Séance en cours", today: "Aujourd’hui", catchup: "Rattrapage · prévue " + d.day.toLowerCase(), done: "Séance faite aujourd’hui", next: "Prochaine séance · " + d.day.toLowerCase() }[mode];
 
-  // Le conseil du coach : une alerte (monte / stagne) en priorité, sinon le premier exercice du jour
+  // Le conseil du coach : une alerte (monte / stagne) en priorité, sinon le premier exercice de la séance affichée
   let tip = null;
   programKeys().forEach((x, k) => { const c = coach(x); if (!tip && (c.type === "monte" || c.type === "stagne")) tip = { k, c }; });
   const first = exList(d.id, active ? G.docId : null)[0];
@@ -274,17 +290,18 @@ function renderHome() {
 
     <section class="hero hero-a" aria-label="Séance">
       <div class="stack" style="gap:8px">
-        <div class="eyebrow" style="color:#FFFFFF;opacity:.8">${active ? "Séance en cours" : (finished ? "Séance faite aujourd’hui" : (todayDay ? "Aujourd’hui" : "Prochaine séance · " + d.day.toLowerCase()))} · ${esc(d.tag)}</div>
-        <h2 class="d up hero-title">${esc(finished ? after.title : d.title)}</h2>
-        <div style="font-size:15px;opacity:.85">${finished ? "Prochaine : " + after.day.toLowerCase() + " · " + exList(after.id).length + " exercices" : `${d.ex.length} exercices · environ ${estimate(d)} min`}</div>
+        <div class="eyebrow" style="color:#FFFFFF;opacity:.8">${esc(eyebrow)}${mode === "catchup" ? "" : " · " + esc(d.tag)}</div>
+        <h2 class="d up hero-title">${esc(d.title)}</h2>
+        <div style="font-size:15px;opacity:.85">${exList(d.id).length} exercices · environ ${estimate(d)} min</div>
       </div>
-      <div class="week-dots" aria-label="${weekDone.size} séances sur 4 cette semaine">${dots}<span>${weekDone.size} / 4 cette semaine</span></div>
+      <div class="week-dots" aria-label="${esc(countTxt)}">${dots}<span>${esc(countTxt)}</span></div>
+      ${mode === "today" && lastMissed ? `<div class="missed"><span><b>${esc(lastMissed.title)}</b> ratée ${whenMissed(lastMissed)}</span><button type="button" class="missed-btn" data-act="open" data-day="${lastMissed.id}">Rattraper</button></div>` : ""}
       <div class="hero-tip">
         <span class="eyebrow" style="color:#FFFFFF;opacity:.85">Le coach</span>
         <span>${esc(LIB[tip.k].n)} : ${esc(tip.c.text.charAt(0).toLowerCase() + tip.c.text.slice(1))}</span>
       </div>
-      ${finished ? `<div class="done-msg">Bien joué. Repos, protéines, et on remet ça ${after.day.toLowerCase()}.</div>`
-        : `<button class="btn-go" type="button" data-act="open" data-day="${d.id}">${active ? "Reprendre" : "Commencer"} ${ARROW}</button>`}
+      ${mode === "done" ? `<div class="done-msg">Bien joué. Repos, protéines, et on remet ça ${d.day.toLowerCase()}.</div>`
+        : `<button class="btn-go" type="button" data-act="open" data-day="${d.id}">${{ active: "Reprendre", catchup: "Rattraper" }[mode] || "Commencer"} ${ARROW}</button>`}
       <button class="hero-link" type="button" data-act="change">Changer de séance</button>
     </section>
 
@@ -1194,7 +1211,10 @@ document.addEventListener("submit", e => {
   save(); toast("Mesure enregistrée"); renderBody();
 });
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState !== "visible" || $("session").hidden || !G) return;
+  if (document.visibilityState !== "visible") return;
+  // Retour dans l'appli : l'accueil suit le jour réel
+  if ($("session").hidden) { dropStaleG(); render(); pushWidgets(); return; }
+  if (!G) return;
   lockScreen();
   if (G.screen === "rest" && G.restEnd <= Date.now()) proceed();
 });
@@ -1205,3 +1225,8 @@ load(); loadG(); applyPrefs();
 setupGestures();
 show(location.hash.slice(1) || "accueil");
 pushWidgets();
+// À minuit, l'accueil passe tout seul au jour suivant
+(function atMidnight() {
+  const n = new Date(), next = new Date(n.getFullYear(), n.getMonth(), n.getDate() + 1, 0, 0, 5);
+  setTimeout(() => { if ($("session").hidden) { dropStaleG(); render(); } pushWidgets(); atMidnight(); }, next - n);
+})();
