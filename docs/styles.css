@@ -577,3 +577,28 @@ textarea { font: inherit; font-size: 16px; color: var(--ink); background: var(--
 .cmp-chip.c-up { background: var(--ok-soft); color: var(--ok); }
 .cmp-chip.c-down { background: var(--warn-soft); color: var(--warn); }
 .cmp-chip.c-same, .cmp-chip.c-new { background: var(--soft); color: var(--muted); }
+
+/* ============================================================
+   Mouvements : onglet liquide, chiffres qui roulent, coche, titre qui vole
+   ============================================================ */
+.tabbar-in { position: relative; }
+.tb-pill { position: absolute; top: 0; bottom: 0; left: 0; width: 0; border-radius: 24px; background: color-mix(in srgb, var(--accent) 13%, transparent); pointer-events: none; }
+.tabbar.has-pill .tb[aria-current="page"] { background: none; }
+.tb { position: relative; }
+
+.rd { display: inline-block; position: relative; overflow: hidden; height: 1.05em; line-height: 1.05; vertical-align: top; }
+.rd > span { display: block; }
+.rd > span + span { position: absolute; left: 0; top: 0; }
+
+.btn-main { position: relative; overflow: hidden; transition: transform 160ms var(--ease), width 360ms cubic-bezier(0.32, 0.72, 0, 1), border-radius 360ms cubic-bezier(0.32, 0.72, 0, 1), background-color 240ms ease; }
+.btn-main.validated { width: 64px; align-self: center; border-radius: 32px; background: var(--ok); color: #FFFFFF; pointer-events: none; font-size: 0; gap: 0; padding: 0; }
+.btn-main.validated > svg:first-child { display: none; }
+.btn-main .vck { position: absolute; inset: 0; display: grid; place-items: center; }
+.btn-main .vck path { stroke-dasharray: 1; stroke-dashoffset: 1; animation: vck 300ms var(--ease) 140ms forwards; }
+@keyframes vck { to { stroke-dashoffset: 0; } }
+
+.fly-title { position: fixed; left: 0; top: 0; z-index: 70; pointer-events: none; transform-origin: 0 0; text-transform: uppercase; color: var(--ink); margin: 0; }
+.screen.land.enter { opacity: 1; transform: none; }
+.screen.land .in > :not(.stack) { animation: fadeUp 340ms var(--ease) 220ms both; }
+.screen.land .stack > :not(.s-title) { animation: fadeIn 300ms ease 200ms both; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }

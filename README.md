@@ -42,6 +42,14 @@ Dans Progrès : ton niveau (un cran de plus avec tes séances, le premier en une
 - **Ton mois** : la première semaine du mois, une carte sur l'accueil ouvre ton bilan du mois précédent en écrans plein format (régularité, volume, records, muscles, sèche, cran), avec une image à partager. Revoir le mois en cours : Progrès → Ton mois. Toucher à droite : écran suivant ; à gauche : précédent ; appui long : pause ; glisser vers le bas : fermer.
 - **Semaine légère** : quand 3 exercices stagnent ou après 7 semaines d'affilée, le coach propose une semaine plus légère (charges à 60 %, une série de moins). La carte de séance passe alors en blanc et bleu clair. Ces séances ne comptent pas pour le coach ni pour les records : la semaine d'après, tu reprends tes charges habituelles.
 
+## Mouvements
+
+- La pastille de la barre d'onglets s'étire vers le nouvel onglet puis se resserre, et suit ton doigt quand tu glisses entre les pages.
+- Les chiffres du minuteur roulent comme un compteur mécanique.
+- « Série validée » se resserre en rond vert avec une coche, la pastille de la série passe au vert, puis la récup arrive (le minuteur compte depuis ton appui).
+- En fin d'exercice, le nom de l'exercice suivant quitte la carte « Ensuite » et devient le titre de l'écran.
+- Tout est désactivé si les animations sont réduites dans les réglages Android.
+
 ## Gestes
 
 - Glisser à gauche / droite pendant la séance : exercice suivant / précédent.

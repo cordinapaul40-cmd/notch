@@ -238,6 +238,7 @@ function show(v, from = null) {
     el.style.transform = ""; el.style.opacity = "";
   }
   document.querySelectorAll(".tb").forEach(b => b.dataset.view === v ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current"));
+  pillTo(VIEWS.indexOf(v));
   if (location.hash !== "#" + v) history.replaceState(null, "", "#" + v);
   render(); if (!from) window.scrollTo(0, 0); else window.scrollTo(0, 0);
 }
@@ -628,7 +629,7 @@ function screenIntro(from = null) {
     <div class="push">
       <a class="link" style="text-align:center" href="https://www.youtube.com/results?search_query=${encodeURIComponent(L.q)}" target="_blank" rel="noopener">Voir une démo vidéo</a>
       <button class="btn-main" type="button" data-act="begin">C’est parti ${ARROW}</button>
-    </div>`, "", from);
+    </div>`, (() => { const f = ENTER_FX; ENTER_FX = ""; return f; })(), from);
 }
 
 // ---------- Réglages de machine (siège, dossier, position des pieds…) ----------
@@ -751,12 +752,20 @@ function validate() {
   arr[j] = { w, r };
   for (let i = 0; i < arr.length; i++) if (arr[i] === undefined) arr[i] = null;
   save(); vibrate(25);
-  if (best && e1rm({ w, r }) > best.v + 0.01) celebrate(L.n, isPdc(x.k) ? `${r} répétitions` : `${fmtN(w)} kg × ${r}`);
+  const isRec = best && e1rm({ w, r }) > best.v + 0.01;
   const next = firstPending(x);
   G.last = wasEdit ? null : { k: x.k, ex: G.ex, j };
-  if (wasEdit) { if (next >= 0) { G.set = next; return goto("set"); } return afterExercise(); }
-  if (next >= 0) return startRest(x.rest, { screen: "set", ex: G.ex, set: next });
-  afterExercise();
+  const go = () => {
+    if (isRec) celebrate(L.n, isPdc(x.k) ? `${r} répétitions` : `${fmtN(w)} kg × ${r}`);
+    if (wasEdit) { if (next >= 0) { G.set = next; return goto("set"); } return afterExercise(); }
+    if (next >= 0) return startRest(x.rest, { screen: "set", ex: G.ex, set: next });
+    afterExercise();
+  };
+  const wait = wasEdit ? 0 : validateFx(x, j, { w, r });
+  if (!wait) return go();
+  // La récup démarre maintenant ; l'écran change quand la coche est dessinée
+  if (next >= 0 || exs().some((e, i) => i !== G.ex && firstPending(e) >= 0)) G.restStartedAt = Date.now();
+  setTimeout(go, wait);
 }
 function afterExercise() {
   const list = exs();
@@ -770,7 +779,8 @@ function afterExercise() {
 let ENTER_FX = "";
 // Écran 3 : récupération plein écran
 function startRest(sec, after) {
-  G.screen = "rest"; G.restEnd = Date.now() + sec * 1000; G.restTotal = sec; G.after = after; saveG();
+  const t0 = G.restStartedAt && Date.now() - G.restStartedAt < 2000 ? G.restStartedAt : Date.now(); delete G.restStartedAt;
+  G.screen = "rest"; G.restEnd = t0 + sec * 1000; G.restTotal = sec; G.after = after; saveG();
   scheduleNativeRest();
   screenRest(false);
 }
@@ -794,7 +804,7 @@ function screenRest(resumed) {
       <svg class="ring" viewBox="0 0 320 320" aria-hidden="true"><defs><linearGradient id="rg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="var(--accent-2)"/><stop offset="1" stop-color="var(--accent)"/></linearGradient></defs><circle class="tr" cx="160" cy="160" r="140"/><circle class="pr" id="r-ring" cx="160" cy="160" r="140" stroke-dasharray="879.65" stroke-dashoffset="0"/></svg>
       <div class="rest-num"><span class="grow"><span class="shake"><span class="t d num" id="r-time" role="timer">${mmss(Math.max(0, Math.ceil((G.restEnd - Date.now()) / 1000)))}</span></span></span><span class="muted" style="font-size:14px">sur ${mmss(G.restTotal)}</span></div>
     </div>
-    <div class="card next glass"><div class="eyebrow">Ensuite</div><div style="font-size:17px;font-weight:600;margin-top:2px">${esc(restNextText(G.after))}</div></div>
+    <div class="card next glass"><div class="eyebrow">Ensuite</div><div style="font-size:17px;font-weight:600;margin-top:2px">${G.after && G.after.screen === "intro" ? `Exercice suivant : <span class="nx-name">${esc(LIB[exs()[G.after.ex].k].n)}</span>` : esc(restNextText(G.after))}</div></div>
     <div class="push">${musicBar()}<div class="rest-btns">
       <button class="btn glass" type="button" data-act="plus">+15 secondes</button>
       <button class="btn btn-dark" type="button" data-act="skip">Passer</button></div></div>`, "rest zoom rest-bg");
@@ -808,7 +818,7 @@ function tick(el) {
   const left = Math.max(0, Math.ceil((G.restEnd - Date.now()) / 1000));
   const t = el.querySelector("#r-time"), ring = el.querySelector("#r-ring"), lab = el.querySelector("#r-label");
   if (!t) return;
-  t.textContent = mmss(left);
+  rollText(t, mmss(left));
   ring.setAttribute("stroke-dashoffset", (879.65 * (1 - Math.min(left, G.restTotal) / G.restTotal)).toFixed(1));
   const urgent = left > 0 && left <= 10;
   el.classList.toggle("urgent", urgent);
@@ -830,11 +840,13 @@ function proceed() {
   clearInterval(timer); timer = null; native("cancelRest");
   // Le cercle se resserre et laisse place au numéro de la série
   const old = $("stage").querySelector(".screen:not(.leave)");
-  if (old && G.screen === "rest" && !REDUCED) { old.classList.add("to-next"); ENTER_FX = "rise"; }
+  const nameFrom = G.screen === "rest" ? grabNextName() : null;
+  if (old && G.screen === "rest" && !REDUCED) { old.classList.add("to-next"); ENTER_FX = (G.after && G.after.screen === "intro") ? (nameFrom ? "land" : "") : "rise"; }
   G.last = null;
   const a = G.after || { screen: "set", ex: G.ex, set: firstPending(curX()) };
   G.ex = a.ex; G.set = Math.max(0, a.set); delete G.restEnd; delete G.after;
   goto(a.screen);
+  if (a.screen === "intro" && nameFrom) flyToTitle(nameFrom);
 }
 
 // « C'est parti » : échauffement avant le premier exercice chargé, sinon la première série à faire
@@ -1066,6 +1078,7 @@ function setupGestures() {
     } else {
       spring({ from: s.dx, to: 0, velocity: v, response: 0.28, onUpdate: x => { s.el.style.transform = `translateX(${x}px)`; s.el.style.opacity = String(1 - Math.min(0.4, Math.abs(x) / W * 0.6)); },
         onDone: () => { s.el.style.transform = ""; s.el.style.opacity = ""; s.el.style.transition = ""; } });
+    if (!dir) pillTo(i);
     }
   };
   stage.addEventListener("pointerup", end); stage.addEventListener("pointercancel", end);
@@ -1095,6 +1108,7 @@ function setupGestures() {
     vs.dx = x;
     vs.el.style.transform = `translateX(${x}px)`;
     vs.el.style.opacity = String(1 - Math.min(0.5, Math.abs(x) / W * 0.7));
+    if (!blocked) pillFollow(i, -x / W * 1.6);
     vs.hist.push({ x: e.clientX, t: e.timeStamp }); if (vs.hist.length > 5) vs.hist.shift();
   });
   const vend = e => {
@@ -1308,6 +1322,7 @@ window.addEventListener("hashchange", () => { const h = location.hash.slice(1); 
 
 // ---------- Démarrage ----------
 load(); loadG(); applyPrefs(); initSeen();
+pillInit();
 setupGestures();
 show(location.hash.slice(1) || "accueil");
 openingIntro();
