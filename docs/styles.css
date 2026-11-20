@@ -603,8 +603,10 @@ textarea { font: inherit; font-size: 16px; color: var(--ink); background: var(--
 .screen.land .stack > :not(.s-title) { animation: fadeIn 300ms ease 200ms both; }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
-/* La barre d'onglets sur sa propre couche : elle reste affichée pendant que les pages glissent dessous */
-.tabbar { transform: translateZ(0); will-change: transform; }
+/* Rien ne doit dépasser en largeur : sinon Android élargit la page (dézoom) pendant les glissements,
+   et la barre d'onglets, fixée à l'écran, s'étire, se décale ou sort de l'écran */
+html, body { overflow-x: clip; }
+.app { overflow-x: clip; overflow-clip-margin: 24px; }
 
 /* Le défilement d'un panneau ne fait jamais défiler la page derrière */
 .sheet-in { overscroll-behavior: contain; }
