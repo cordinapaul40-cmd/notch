@@ -37,6 +37,11 @@ Tout se règle dans Réglages (roue dentée sur l'accueil), avec aussi « Rédui
 
 Dans Progrès : ton niveau (un cran de plus avec tes séances, le premier en une semaine) et 14 badges qui récompensent la régularité et les progrès (semaines complètes, records, stagnation cassée, kilos perdus). Les nouveautés s'affichent dans le bilan de séance.
 
+## Ton mois et semaine légère
+
+- **Ton mois** : la première semaine du mois, une carte sur l'accueil ouvre ton bilan du mois précédent en écrans plein format (régularité, volume, records, muscles, sèche, cran), avec une image à partager. Revoir le mois en cours : Progrès → Ton mois. Toucher à droite : écran suivant ; à gauche : précédent ; appui long : pause ; glisser vers le bas : fermer.
+- **Semaine légère** : quand 3 exercices stagnent ou après 7 semaines d'affilée, le coach propose une semaine plus légère (charges à 60 %, une série de moins). La carte de séance passe alors en blanc et bleu clair. Ces séances ne comptent pas pour le coach ni pour les records : la semaine d'après, tu reprends tes charges habituelles.
+
 ## Gestes
 
 - Glisser à gauche / droite pendant la séance : exercice suivant / précédent.
@@ -45,6 +50,8 @@ Dans Progrès : ton niveau (un cran de plus avec tes séances, le premier en une
 - Appui long sur l'icône Notch : *Séance du jour*, *Noter mon poids*, *Mes progrès*.
 
 ## Pendant une séance
+
+- **Machine prise** : sur l'écran de l'exercice (ou « Machine prise ? » avant ta 1re série). *Plus tard* décale l'exercice en fin de séance ; ou choisis une variante qui travaille les mêmes muscles, avec une charge de départ conseillée (ta dernière fois, sinon une estimation marquée « ≈ » à ajuster).
 
 - Chaque exercice commence par un écran qui montre les muscles travaillés et le geste en 3 points. Le bouton **Remplacer par une variante** propose 2 ou 3 exercices qui travaillent les mêmes muscles, pour la séance ou pour toujours.
 - Une série à la fois : charge et répétitions reprises de la dernière fois, ajustables avec − et +.
@@ -64,7 +71,8 @@ Tout est enregistré **uniquement sur le téléphone**. Sur l'accueil, **Exporte
 |---|---|
 | `docs/data.js` | Le programme : exercices, variantes, séries, répétitions, repos, charges de départ |
 | `docs/app.js` | Le fonctionnement des écrans |
-| `docs/connect.js` | Écran verrouillé, musique, agenda, arrivée à la salle, crans |
+| `docs/connect.js` | Écran verrouillé, musique, agenda, arrivée à la salle, crans, animations |
+| `docs/plus.js` | Machine prise, Ton mois, Semaine légère |
 | `docs/styles.css` | Couleurs, polices, animations |
 | `app/src/main/java/app/notch/` | La partie Android : écran principal, minuteur (`Rest.kt`), séance sur l'écran verrouillé (`Live.kt`), musique (`Music.kt`), agenda (`Cal.kt`), salle (`Gym.kt`), widgets (`Widgets.kt`) |
 | `.github/workflows/build.yml` | La construction automatique de l'APK |

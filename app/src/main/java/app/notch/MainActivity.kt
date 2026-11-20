@@ -208,6 +208,24 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** Partage une image (PNG en data URL) avec le texte qui l'accompagne. */
+    fun shareImage(dataUrl: String, text: String) {
+        runCatching {
+            val bytes = android.util.Base64.decode(dataUrl.substringAfter(","), android.util.Base64.DEFAULT)
+            val dir = java.io.File(cacheDir, "share").apply { mkdirs() }
+            val file = java.io.File(dir, "notch-mois.png")
+            file.writeBytes(bytes)
+            val uri = androidx.core.content.FileProvider.getUriForFile(this, "app.notch.files", file)
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = "image/png"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_TEXT, text)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(send, "Partager ton mois"))
+        }.onFailure { js("toast('Partage impossible')") }
+    }
+
     fun startMusic() {
         Music.start(this) { json -> js("window.notchMusic && notchMusic($json)") }
     }

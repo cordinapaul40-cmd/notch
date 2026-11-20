@@ -109,12 +109,16 @@ function save() {
 }
 
 // ---------- Variantes : l'exercice réellement fait à une place du programme ----------
+// i : place de l'exercice dans le programme · ordre propre à la séance (machine prise) · une série de moins en semaine légère
 function exList(dayId, docId) {
   const d = dayById(dayId), l = docId ? DB.logs[docId] : null;
-  return d.ex.map((x, i) => {
+  const list = d.ex.map((x, i) => {
     const k = (l && l.swap && l.swap[i]) || (!l ? DB.prefs.swaps[dayId + ":" + i] : null) || x.k;
-    return k === x.k ? { ...x, base: x.k } : { ...x, k, base: x.k, w0: null, load: "À trouver à la 1re séance" };
+    const sets = l && l.deload ? Math.max(2, x.sets - 1) : x.sets;
+    return k === x.k ? { ...x, base: x.k, i, sets } : { ...x, k, base: x.k, i, sets, w0: null, load: "À trouver à la 1re séance" };
   });
+  if (l && Array.isArray(l.order) && l.order.length === list.length) return l.order.map(i => list[i]);
+  return list;
 }
 let G = null; // séance en cours
 function saveG() { try { G ? localStorage.setItem(KEY_S, JSON.stringify(G)) : localStorage.removeItem(KEY_S); } catch (e) {} liveUpdate(); }
@@ -124,7 +128,8 @@ function dropStaleG() { if (G && (!DB.logs[G.docId] || DB.logs[G.docId].date !==
 
 // ---------- Historique, records, coach ----------
 function sessionsWith(k, exclude) {
-  return Object.entries(DB.logs).filter(([id, l]) => id !== exclude && l.ex && doneSets(l.ex[k]).length)
+  // Les séances de semaine légère ne comptent ni pour le coach ni pour les records
+  return Object.entries(DB.logs).filter(([id, l]) => id !== exclude && l.ex && !l.deload && doneSets(l.ex[k]).length)
     .sort((a, b) => b[1].date.localeCompare(a[1].date) || (b[1].startedAt || 0) - (a[1].startedAt || 0))
     .map(([id, l]) => ({ id, date: l.date, sets: doneSets(l.ex[k]) }));
 }
@@ -274,6 +279,7 @@ function renderHome() {
   const countTxt = `${weekDone.size} / 4 cette semaine${missed.length ? ` · ${missed.length} ratée${missed.length > 1 ? "s" : ""}` : ""}`;
   const eyebrow = { active: "Séance en cours", today: "Aujourd’hui" + (showTime ? " · " + hTxt(P.time) : ""), catchup: "Rattrapage · prévue " + dayName(P.date), done: "Séance faite aujourd’hui", next: "Prochaine séance · " + pday + (showTime ? " " + hTxt(P.time) : "") }[mode];
   const cf = (mode === "active") ? null : findConflict(plan, weekDone);
+  const light = deloadOn(), dls = light ? null : deloadSuggestion();
 
   // Le conseil du coach : une alerte (monte / stagne) en priorité, sinon le premier exercice de la séance affichée
   let tip = null;
@@ -299,8 +305,11 @@ function renderHome() {
       ${SETTINGS_BTN}
     </div>
 
-    <section class="hero hero-a" aria-label="Séance">
+    ${dls ? deloadCard(dls) : ""}
+    ${monthCard()}
+    <section class="hero hero-a${light ? " lite" : ""}" aria-label="Séance">
       <div class="stack" style="gap:8px">
+        ${light ? `<span class="dl-badge">Semaine légère · ${Math.min(4, weekDone.size + (mode === "done" ? 0 : 1))}/4</span>` : ""}
         <div class="eyebrow" style="color:#FFFFFF;opacity:.8">${esc(eyebrow)}${mode === "catchup" ? "" : " · " + esc(d.tag)}</div>
         <h2 class="d up hero-title">${esc(d.title)}</h2>
         <div style="font-size:15px;opacity:.85">${exList(d.id).length} exercices · environ ${estimate(d)} min</div>
@@ -308,12 +317,13 @@ function renderHome() {
       <div class="week-dots" aria-label="${esc(countTxt)}">${dots}<span>${esc(countTxt)}</span></div>
       ${mode === "today" && lastMissed ? `<div class="missed"><span><b>${esc(lastMissed.d.title)}</b> ratée ${whenMissed(lastMissed)}</span><button type="button" class="missed-btn" data-act="open" data-day="${lastMissed.id}">Rattraper</button></div>` : ""}
       <div class="hero-tip">
-        <span class="eyebrow" style="color:#FFFFFF;opacity:.85">Le coach</span>
-        <span>${esc(LIB[tip.k].n)} : ${esc(tip.c.text.charAt(0).toLowerCase() + tip.c.text.slice(1))}</span>
+        <span class="eyebrow" style="color:#FFFFFF;opacity:.85">${light ? "Cette semaine" : "Le coach"}</span>
+        <span>${light ? esc(deloadTip(d)) : `${esc(LIB[tip.k].n)} : ${esc(tip.c.text.charAt(0).toLowerCase() + tip.c.text.slice(1))}`}</span>
       </div>
       ${mode === "done" ? `<div class="done-msg">Bien joué. Repos, protéines, et on remet ça ${esc(pday)}.</div>`
         : `<button class="btn-go" type="button" data-act="open" data-day="${d.id}">${{ active: "Reprendre", catchup: "Rattraper" }[mode] || "Commencer"} ${ARROW}</button>`}
       <button class="hero-link" type="button" data-act="change">Changer de séance</button>
+      ${light ? `<button class="hero-link" type="button" data-act="deload-stop">Arrêter la semaine légère</button>` : ""}
     </section>
     ${cf ? conflictCard(cf) : ""}
 
@@ -404,6 +414,7 @@ function renderProgress() {
   $("v-progres").innerHTML = `
     <div class="stack" style="gap:4px"><div class="eyebrow">Courbes et records</div><h1 class="d h1 up">Progrès</h1></div>
     ${cranCard()}
+    ${monthRow()}
     ${heatCard()}
     <label class="field" for="pk">Exercice
       <select id="pk">${[...keys.keys()].map(k => `<option value="${k}" ${k === PK ? "selected" : ""}>${esc(LIB[k].n)}${sessionsWith(k).length ? "" : " · pas encore fait"}</option>`).join("")}</select></label>
@@ -501,6 +512,7 @@ function openSession(dayId) {
       const swap = {};
       dayById(dayId).ex.forEach((x, i) => { const k = DB.prefs.swaps[dayId + ":" + i]; if (k && k !== x.k) swap[i] = k; });
       DB.logs[id] = { date: today(), day: dayId, startedAt: Date.now(), finished: false, ex: {}, swap };
+      if (deloadOn()) DB.logs[id].deload = true;
       save();
     }
     G = { dayId, docId: id, ex: 0, set: 0, screen: "intro", warmed: false, warm: [] };
@@ -568,8 +580,8 @@ function openVariants() {
 function pickSwap(k) {
   const x = curX(), keep = $("keep-swap") && $("keep-swap").checked;
   const l = doc(); l.swap = l.swap || {};
-  if (k === x.base) delete l.swap[G.ex]; else l.swap[G.ex] = k;
-  const pk = G.dayId + ":" + G.ex;
+  if (k === x.base) delete l.swap[x.i]; else l.swap[x.i] = k;
+  const pk = G.dayId + ":" + x.i;
   if (keep) { if (k === x.base) delete DB.prefs.swaps[pk]; else DB.prefs.swaps[pk] = k; }
   save(); G.set = Math.max(0, firstPending(curX()));
   closeSheet();
@@ -578,14 +590,23 @@ function pickSwap(k) {
 
 // Écran 1 : présentation de l'exercice
 function screenIntro(from = null) {
-  const x = curX(), L = LIB[x.k], c = coach(x, G.docId);
+  const x = curX(), L = LIB[x.k];
+  let c = coach(x, G.docId);
+  if (doc().deload) {
+    const w = c.w != null ? c.w : x.w0;
+    c = { type: "garde", label: "Légère", w: w != null && !isPdc(x.k) ? deloadW(x.k, w) : null,
+      text: w != null && !isPdc(x.k) ? `Semaine légère : 60 % de ${fmtW(w)}, ${x.sets} séries. Concentre-toi sur la technique, 2 secondes en descente.` : `Semaine légère : ${x.sets} séries, sans aller à l’échec.` };
+  }
   topbar(`Exercice ${G.ex + 1} sur ${exs().length}`);
   const canSwap = (ALT[x.base] || []).length > 0;
   transition(`
     <div class="stack" style="gap:6px">
       <div class="eyebrow">${x.sets} séries · ${x.lo} à ${x.hi} reps · repos ${fmtRest(x.rest)}</div>
       <h1 class="d s-title">${esc(L.n)}</h1>
-      ${canSwap ? `<button class="swap-btn" type="button" data-act="swap"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h11l-3-3M17 17H6l3 3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>${x.k !== x.base ? "Variante de " + esc(LIB[x.base].n) : "Remplacer par une variante"}</button>` : ""}
+      <div class="swap-row">
+      <button class="swap-btn busy-btn" type="button" data-act="busy"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M6 6l12 12"/></svg>Machine prise</button>
+      ${canSwap ? `<button class="swap-btn" type="button" data-act="swap"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h11l-3-3M17 17H6l3 3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>${x.k !== x.base ? "Variante de " + esc(LIB[x.base].n) : "Variante"}</button>` : ""}
+      </div>
     </div>
     ${noteCard(x.k)}
     <div class="card coach"><b>${c.w != null && !isPdc(x.k) ? "Objectif : " + fmtW(c.w) : "Objectif"}</b><span class="chip ${c.type}">${c.label}</span><p>${esc(c.text)}</p></div>
@@ -666,7 +687,10 @@ function prefill(x, j) {
   if (prev) { w = prev.w; from = "prev"; }
   else if (c.type === "monte" && c.w != null) { w = c.w; from = "coach"; }
   else if (hist) { w = (hist.sets[j] || hist.sets[hist.sets.length - 1]).w; from = "hist"; }
-  else w = x.w0;
+  else if (x.w0 != null) w = x.w0;
+  else if (doc().est && doc().est[x.k] != null) { w = doc().est[x.k]; from = "est"; }
+  // Semaine légère : 60 % de la charge habituelle (la série précédente du jour est déjà allégée)
+  if (doc().deload && !isPdc(x.k) && from !== "prev" && w != null && w !== "") { w = deloadW(x.k, w); from = "deload"; }
   const r = hist && hist.sets[j] ? hist.sets[j].r : (prev ? prev.r : x.hi);
   return { w: isPdc(x.k) ? 0 : (w ?? ""), r, from };
 }
@@ -681,7 +705,7 @@ function screenSet() {
     if (s) return `<button type="button" class="ok" data-act="edit" data-j="${i}" aria-label="Modifier la série ${i + 1}">${isPdc(x.k) ? s.r + " reps" : `${s.r} × ${fmtN(s.w)}`}</button>`;
     return `<button type="button" disabled aria-label="Série ${i + 1} à venir"></button>`;
   }).join("");
-  const hint = { edit: "Tu modifies une série déjà faite.", prev: "Repris de ta série précédente.", coach: "10 répétitions partout la dernière fois : le coach augmente la charge.", hist: "Repris de ta dernière séance.", start: "Charge de départ du programme." }[p.from];
+  const hint = { edit: "Tu modifies une série déjà faite.", prev: "Repris de ta série précédente.", coach: "10 répétitions partout la dernière fois : le coach augmente la charge.", hist: "Repris de ta dernière séance.", start: "Charge de départ du programme.", est: "Charge estimée : ajuste après la 1re série.", deload: "Semaine légère : 60 % de ta charge habituelle." }[p.from];
   // Montée d'un cran : la charge défile la première fois qu'on la voit dans la séance
   const up = p.from === "coach" && !isPdc(x.k) ? STEP[L.t] : 0;
   const rollIt = up && !REDUCED && !(G.rolled && G.rolled[x.k]);
@@ -703,7 +727,7 @@ function screenSet() {
     <div class="muted" style="font-size:13px;text-align:center">${hint}</div>
     <div class="push">
       ${musicBar()}
-      <button class="link" style="background:none;border:none" type="button" data-act="intro">Revoir le geste</button>
+      <div class="set-links"><button class="link" style="background:none;border:none" type="button" data-act="intro">Revoir le geste</button>${doneSets(arr).length ? "" : `<button class="link" style="background:none;border:none" type="button" data-act="busy">Machine prise ?</button>`}</div>
       <button class="btn-main" type="button" data-act="validate"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Série validée</button>
     </div>`);
   if (rollIt) { G.rolled = Object.assign({}, G.rolled, { [x.k]: 1 }); saveG(); rollWeight(el, x.k, num(p.w) - up, num(p.w)); }
@@ -1184,6 +1208,7 @@ window.notchOpen = action => {
   else if (action === "resume") { dropStaleG(); if (G) openSession(G.dayId); }
 };
 window.notchBack = () => {
+  if (STORY) { closeStory(); return true; }
   if (SHEET) { closeSheet(); return true; }
   if (!$("session").hidden) {
     closeSession(); return true;
@@ -1211,6 +1236,7 @@ document.addEventListener("click", e => {
   if (a === "sheet-close") return closeSheet();
   if (a === "unswap") { delete DB.prefs.swaps[b.dataset.day + ":" + b.dataset.i]; save(); return renderProgram(); }
   if (onConnectAct(a, b)) return;
+  if (onPlusAct(a, b)) return;
   if (!G) return;
   if (a === "begin") return beginExercise();
   if (a === "warm-done") { G.warm = G.warm || []; G.warm[+b.dataset.i] = !G.warm[+b.dataset.i]; saveG(); vibrate(15); b.setAttribute("aria-pressed", String(!!G.warm[+b.dataset.i])); b.closest(".warm-row").classList.toggle("ok", !!G.warm[+b.dataset.i]); return; }

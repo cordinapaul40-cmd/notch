@@ -120,4 +120,10 @@ class NotchBridge(private val activity: MainActivity) {
     /** Ouvre les réglages Android de Notch (permissions refusées une fois pour toutes). */
     @JavascriptInterface
     fun openAppSettings() { activity.runOnUiThread { activity.openAppSettings() } }
+
+    // ---------- Partage (bilan du mois) ----------
+    @JavascriptInterface
+    fun shareImage(dataUrl: String, text: String) {
+        activity.runOnUiThread { activity.shareImage(dataUrl, text) }
+    }
 }
