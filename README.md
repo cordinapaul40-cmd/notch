@@ -58,7 +58,7 @@ Dans Progrès : ton niveau (un cran de plus avec tes séances, le premier en une
 - **Tes réglages** : une note par exercice (siège, dossier, pieds…), rappelée avant chaque série.
 - **Échauffement** : avant le premier exercice chargé, 2 séries légères (50 % × 10, 75 % × 5).
 - **Disques** : pour les exercices à la barre, ce qu'il faut mettre de chaque côté (barre de 20 kg, ou 10 kg pour la barre EZ).
-- Récupération en plein écran. Les 10 dernières secondes passent en rouge, le téléphone vibre chaque seconde et bipe sur les 3 dernières.
+- Récupération en plein écran. Les 10 dernières secondes passent en rouge, le téléphone vibre chaque seconde et bipe sur les 3 dernières. Les bips passent par-dessus ta musique comme un GPS : Spotify baisse le temps des bips, puis remonte.
 - Si tu verrouilles le téléphone ou quittes l'appli, le compte à rebours continue dans les notifications et une alerte te prévient à la fin.
 
 ## Tes données

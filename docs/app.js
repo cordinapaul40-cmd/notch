@@ -479,6 +479,8 @@ function renderBody() {
 let actx = null, wake = null, timer = null, lastSec = null;
 function beep(freq = 880, dur = 0.16, vol = 0.25) {
   if (DB.prefs.sound === false) return;
+  // Dans l'appli Android : bip joué par le téléphone, qui baisse la musique le temps du bip
+  if (NATIVE) return native("beep", freq, Math.round(dur * 1000), Math.min(1, vol * 2.4));
   try {
     if (!actx) return; if (actx.state === "suspended") actx.resume();
     const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime;

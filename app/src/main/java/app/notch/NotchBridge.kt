@@ -126,4 +126,10 @@ class NotchBridge(private val activity: MainActivity) {
     fun shareImage(dataUrl: String, text: String) {
         activity.runOnUiThread { activity.shareImage(dataUrl, text) }
     }
+
+    // ---------- Bips de récup (la musique baisse le temps du bip) ----------
+    @JavascriptInterface
+    fun beep(freq: Double, durMs: Double, vol: Double) {
+        activity.runOnUiThread { Beep.play(activity.applicationContext, freq, durMs.toInt().coerceIn(30, 1500), vol) }
+    }
 }
