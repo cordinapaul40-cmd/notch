@@ -45,4 +45,79 @@ class NotchBridge(private val activity: MainActivity) {
     fun updateWidgets(json: String) {
         WidgetStore.save(activity.applicationContext, json)
     }
+
+    // ---------- Séance sur l'écran verrouillé ----------
+    @JavascriptInterface
+    fun liveSession(json: String) = Live.save(activity.applicationContext, json)
+
+    @JavascriptInterface
+    fun liveClear() = Live.clear(activity.applicationContext)
+
+    // ---------- Permissions ----------
+    @JavascriptInterface
+    fun hasPerm(name: String): Boolean = activity.hasPerm(name)
+
+    /** Demande une ou plusieurs permissions (séparées par des virgules) ; réponse dans notchPerm(key, ok). */
+    @JavascriptInterface
+    fun askPerm(key: String, names: String) {
+        activity.runOnUiThread { activity.askPerms(key, names.split(",").map { it.trim() }.filter { it.isNotEmpty() }) }
+    }
+
+    // ---------- Musique ----------
+    @JavascriptInterface
+    fun musicAccess(): Boolean = Music.granted(activity)
+
+    @JavascriptInterface
+    fun musicOpenAccess() { activity.runOnUiThread { Music.openAccess(activity) } }
+
+    @JavascriptInterface
+    fun musicStart() { activity.runOnUiThread { activity.startMusic() } }
+
+    @JavascriptInterface
+    fun musicStop() { activity.runOnUiThread { Music.stop() } }
+
+    @JavascriptInterface
+    fun musicCmd(cmd: String) { activity.runOnUiThread { Music.command(cmd) } }
+
+    @JavascriptInterface
+    fun musicOpen(url: String) { activity.runOnUiThread { if (!Music.open(activity, url)) activity.js("toast('Aucun lecteur de musique trouvé')") } }
+
+    // ---------- Agenda ----------
+    @JavascriptInterface
+    fun calEvents(from: String, to: String): String {
+        val f = from.toDoubleOrNull()?.toLong() ?: return "[]"
+        val t = to.toDoubleOrNull()?.toLong() ?: return "[]"
+        return Cal.events(activity.applicationContext, f, t)
+    }
+
+    @JavascriptInterface
+    fun calSync(json: String): String = Cal.sync(activity.applicationContext, json)
+
+    @JavascriptInterface
+    fun calRemoveAll(): Int = Cal.removeAll(activity.applicationContext)
+
+    // ---------- Arrivée à la salle ----------
+    @JavascriptInterface
+    fun gymState(): String = Gym.state(activity.applicationContext)
+
+    /** Position actuelle ; réponse dans notchGymLocated(json ou null). */
+    @JavascriptInterface
+    fun gymLocate() {
+        activity.runOnUiThread {
+            Gym.locate(activity) { loc -> activity.js("window.notchGymLocated && notchGymLocated(${loc?.toString() ?: "null"})") }
+        }
+    }
+
+    @JavascriptInterface
+    fun gymSave(json: String) = Gym.save(activity.applicationContext, json)
+
+    @JavascriptInterface
+    fun gymOff() = Gym.off(activity.applicationContext)
+
+    @JavascriptInterface
+    fun openBasicFit(): Boolean = Gym.openBasicFit(activity)
+
+    /** Ouvre les réglages Android de Notch (permissions refusées une fois pour toutes). */
+    @JavascriptInterface
+    fun openAppSettings() { activity.runOnUiThread { activity.openAppSettings() } }
 }

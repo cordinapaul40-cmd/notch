@@ -54,13 +54,11 @@ object Haptics {
 /**
  * Le minuteur de récupération côté Android.
  * La page garde la main quand Notch est à l'écran. Si l'écran s'éteint ou si tu sors de l'appli,
- * Android prend le relais : compte à rebours dans les notifications, vibration à chaque seconde
- * sur les 10 dernières, puis alerte « C'est reparti ».
+ * Android prend le relais : vibration à chaque seconde sur les 10 dernières, puis alerte « C'est reparti ».
+ * Le compte à rebours lui-même est affiché par la notification de séance (Live.kt).
  */
 object Rest {
-    private const val CH_TIMER = "rest_timer"
     private const val CH_END = "rest_end"
-    private const val N_TIMER = 11
     private const val N_END = 12
     const val ACTION_WARN = "app.notch.REST_WARN"
     const val ACTION_END = "app.notch.REST_END"
@@ -68,10 +66,6 @@ object Rest {
 
     fun createChannels(c: Context) {
         val nm = c.getSystemService(NotificationManager::class.java) ?: return
-        val timer = NotificationChannel(CH_TIMER, "Récupération en cours", NotificationManager.IMPORTANCE_LOW).apply {
-            description = "Le compte à rebours de ta récup quand tu quittes l’appli"
-            setShowBadge(false)
-        }
         val end = NotificationChannel(CH_END, "Fin de récupération", NotificationManager.IMPORTANCE_HIGH).apply {
             description = "L’alerte qui te dit de repartir sur ta série"
             enableVibration(true)
@@ -81,7 +75,6 @@ object Rest {
                 AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION).build()
             )
         }
-        nm.createNotificationChannel(timer)
         nm.createNotificationChannel(end)
     }
 
@@ -117,7 +110,6 @@ object Rest {
         am?.cancel(warn)
         if (endMs - 10_000 > now) setAlarm(c, endMs - 10_000, warn)
         setAlarm(c, endMs, end)
-        if (!NotchApp.foreground) showTimer(c)
     }
 
     fun cancel(c: Context) {
@@ -125,41 +117,19 @@ object Rest {
         val am = c.getSystemService(AlarmManager::class.java)
         am?.cancel(pending(c, ACTION_WARN, 1))
         am?.cancel(pending(c, ACTION_END, 2))
-        NotificationManagerCompat.from(c).cancel(N_TIMER)
     }
 
     fun onForeground(c: Context) {
-        val nm = NotificationManagerCompat.from(c)
-        nm.cancel(N_TIMER)
-        nm.cancel(N_END)
+        NotificationManagerCompat.from(c).cancel(N_END)
+        Live.hide(c)
     }
 
+    /** Hors de l'appli : la séance s'affiche dans les notifications et sur l'écran verrouillé. */
     fun onBackground(c: Context) {
-        showTimer(c)
+        Live.show(c)
     }
 
     private fun canNotify(c: Context) = NotificationManagerCompat.from(c).areNotificationsEnabled()
-
-    private fun showTimer(c: Context) {
-        val end = prefs(c).getLong("end", 0L)
-        val now = System.currentTimeMillis()
-        if (end <= now || !canNotify(c)) return
-        val n = NotificationCompat.Builder(c, CH_TIMER)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("Récupération")
-            .setContentText("Ensuite : " + (prefs(c).getString("text", "") ?: ""))
-            .setUsesChronometer(true)
-            .setChronometerCountDown(true)
-            .setWhen(end)
-            .setShowWhen(true)
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .setSilent(true)
-            .setTimeoutAfter(end - now + 5_000)
-            .setContentIntent(openApp(c))
-            .build()
-        runCatching { NotificationManagerCompat.from(c).notify(N_TIMER, n) }
-    }
 
     fun onWarn(c: Context) {
         if (NotchApp.foreground) return
@@ -172,8 +142,8 @@ object Rest {
     fun onEnd(c: Context) {
         val text = prefs(c).getString("text", "") ?: ""
         prefs(c).edit().remove("end").apply()
-        NotificationManagerCompat.from(c).cancel(N_TIMER)
         if (NotchApp.foreground) return
+        Live.promoteAfter(c)
         Haptics.alarm(c, longArrayOf(400, 150, 400))
         if (!canNotify(c)) return
         val n = NotificationCompat.Builder(c, CH_END)

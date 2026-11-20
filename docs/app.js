@@ -94,6 +94,9 @@ function load() {
   } catch (e) {}
   DB.prefs.notif = Object.assign({}, DEFAULT_PREFS.notif, DB.prefs.notif || {});
   DB.prefs.notes = DB.prefs.notes || {};
+  DB.prefs.music = Object.assign({ on: false, lists: {} }, DB.prefs.music || {});
+  DB.prefs.cal = Object.assign({ on: false, write: false, time: "18:00" }, DB.prefs.cal || {});
+  DB.prefs.moves = DB.prefs.moves || {};
 }
 const DEFAULT_PREFS = { swaps: {}, notes: {}, sound: true, solid: false, notif: { session: true, time: "17:30", weekly: true } };
 function applyPrefs() {
@@ -114,7 +117,7 @@ function exList(dayId, docId) {
   });
 }
 let G = null; // séance en cours
-function saveG() { try { G ? localStorage.setItem(KEY_S, JSON.stringify(G)) : localStorage.removeItem(KEY_S); } catch (e) {} }
+function saveG() { try { G ? localStorage.setItem(KEY_S, JSON.stringify(G)) : localStorage.removeItem(KEY_S); } catch (e) {} liveUpdate(); }
 function loadG() { try { G = JSON.parse(localStorage.getItem(KEY_S) || "null"); } catch (e) { G = null; } dropStaleG(); }
 // Une séance d'un autre jour ne peut plus être reprise : on l'oublie (ce qui a été fait reste enregistré)
 function dropStaleG() { if (G && (!DB.logs[G.docId] || DB.logs[G.docId].date !== today())) { G = null; saveG(); } }
@@ -239,36 +242,44 @@ function renderHome() {
   const t = today(), wi = weekIdx(), mon = mondayKey(), wdNow = wi + 1;
   const weekDone = new Set(Object.values(DB.logs).filter(l => l.date >= mon && hasSets(l)).map(l => l.day));
   const doneToday = new Set(Object.values(DB.logs).filter(l => l.date === t && l.finished).map(l => l.day));
+  // Le planning de la semaine, séances décalées comprises
+  const plan = weekPlan(mon);
   // Une séance « en cours » ne vaut que pour aujourd'hui
-  const active = G && DB.logs[G.docId] && DB.logs[G.docId].date === t && !DB.logs[G.docId].finished ? dayById(G.dayId) : null;
+  const activeD = G && DB.logs[G.docId] && DB.logs[G.docId].date === t && !DB.logs[G.docId].finished ? dayById(G.dayId) : null;
   // Séances prévues plus tôt dans la semaine et pas faites
-  const missed = DAYS.filter(x => x.wd < wdNow && !weekDone.has(x.id));
+  const missed = plan.filter(p => p.wd < wdNow && !weekDone.has(p.id));
   const lastMissed = missed[missed.length - 1] || null;
-  const todayDay = DAYS.find(x => x.wd === wdNow);
-  const nextDay = DAYS.find(x => x.wd > wdNow) || DAYS[0];
+  const todayP = plan.find(p => p.wd === wdNow);
+  const nextP = plan.find(p => p.wd > wdNow) || null;
 
   // mode : en cours · aujourd'hui · rattrapage (jour de repos) · faite · prochaine
-  let d, mode;
-  if (active) { d = active; mode = "active"; }
-  else if (todayDay && !doneToday.has(todayDay.id)) { d = todayDay; mode = "today"; }
-  else if (!todayDay && lastMissed) { d = lastMissed; mode = "catchup"; }
-  else if (todayDay) { d = nextDay; mode = "done"; }
-  else { d = nextDay; mode = "next"; }
+  let P, mode;
+  if (activeD) { P = plan.find(p => p.id === activeD.id); mode = "active"; }
+  else if (todayP && !doneToday.has(todayP.id)) { P = todayP; mode = "today"; }
+  else if (!todayP && lastMissed) { P = lastMissed; mode = "catchup"; }
+  else if (todayP) { P = nextP; mode = "done"; }
+  else { P = nextP; mode = "next"; }
+  // Fin de semaine : la prochaine séance est celle de lundi
+  if (!P) { const nm = weekPlan(addDays(mon, 7)); P = nm[0]; }
+  const d = P.d;
+  const pday = P.date === t ? "aujourd’hui" : (P.date === addDays(t, 1) ? "demain" : dayName(P.date));
+  const showTime = DB.prefs.cal.on || DB.prefs.cal.write || P.moved;
 
-  const whenMissed = x => x.wd === wdNow - 1 ? "hier" : x.day.toLowerCase();
+  const whenMissed = p => p.date === addDays(t, -1) ? "hier" : dayName(p.date);
   const dots = Array.from({ length: 7 }, (_, i) => {
-    const day = DAYS.find(x => x.wd === i + 1);
-    const cls = !day ? "off" : (weekDone.has(day.id) ? "done" : (missed.includes(day) ? "miss" : "plan"));
+    const p = plan.find(x => x.wd === i + 1);
+    const cls = !p ? "off" : (weekDone.has(p.id) ? "done" : (missed.includes(p) ? "miss" : "plan"));
     return `<i class="dot-d ${cls}${i === wi ? " now" : ""}"></i>`;
   }).join("");
   const countTxt = `${weekDone.size} / 4 cette semaine${missed.length ? ` · ${missed.length} ratée${missed.length > 1 ? "s" : ""}` : ""}`;
-  const eyebrow = { active: "Séance en cours", today: "Aujourd’hui", catchup: "Rattrapage · prévue " + d.day.toLowerCase(), done: "Séance faite aujourd’hui", next: "Prochaine séance · " + d.day.toLowerCase() }[mode];
+  const eyebrow = { active: "Séance en cours", today: "Aujourd’hui" + (showTime ? " · " + hTxt(P.time) : ""), catchup: "Rattrapage · prévue " + dayName(P.date), done: "Séance faite aujourd’hui", next: "Prochaine séance · " + pday + (showTime ? " " + hTxt(P.time) : "") }[mode];
+  const cf = (mode === "active") ? null : findConflict(plan, weekDone);
 
   // Le conseil du coach : une alerte (monte / stagne) en priorité, sinon le premier exercice de la séance affichée
   let tip = null;
   programKeys().forEach((x, k) => { const c = coach(x); if (!tip && (c.type === "monte" || c.type === "stagne")) tip = { k, c }; });
-  const first = exList(d.id, active ? G.docId : null)[0];
-  if (!tip) tip = { k: first.k, c: coach(first, active ? G.docId : undefined) };
+  const first = exList(d.id, activeD ? G.docId : null)[0];
+  if (!tip) tip = { k: first.k, c: coach(first, activeD ? G.docId : undefined) };
 
   const h = weekHeat();
   const W = Object.values(DB.body).filter(b => b.weight != null).sort((a, b) => a.date.localeCompare(b.date));
@@ -295,15 +306,16 @@ function renderHome() {
         <div style="font-size:15px;opacity:.85">${exList(d.id).length} exercices · environ ${estimate(d)} min</div>
       </div>
       <div class="week-dots" aria-label="${esc(countTxt)}">${dots}<span>${esc(countTxt)}</span></div>
-      ${mode === "today" && lastMissed ? `<div class="missed"><span><b>${esc(lastMissed.title)}</b> ratée ${whenMissed(lastMissed)}</span><button type="button" class="missed-btn" data-act="open" data-day="${lastMissed.id}">Rattraper</button></div>` : ""}
+      ${mode === "today" && lastMissed ? `<div class="missed"><span><b>${esc(lastMissed.d.title)}</b> ratée ${whenMissed(lastMissed)}</span><button type="button" class="missed-btn" data-act="open" data-day="${lastMissed.id}">Rattraper</button></div>` : ""}
       <div class="hero-tip">
         <span class="eyebrow" style="color:#FFFFFF;opacity:.85">Le coach</span>
         <span>${esc(LIB[tip.k].n)} : ${esc(tip.c.text.charAt(0).toLowerCase() + tip.c.text.slice(1))}</span>
       </div>
-      ${mode === "done" ? `<div class="done-msg">Bien joué. Repos, protéines, et on remet ça ${d.day.toLowerCase()}.</div>`
+      ${mode === "done" ? `<div class="done-msg">Bien joué. Repos, protéines, et on remet ça ${esc(pday)}.</div>`
         : `<button class="btn-go" type="button" data-act="open" data-day="${d.id}">${{ active: "Reprendre", catchup: "Rattraper" }[mode] || "Commencer"} ${ARROW}</button>`}
       <button class="hero-link" type="button" data-act="change">Changer de séance</button>
     </section>
+    ${cf ? conflictCard(cf) : ""}
 
     <nav class="card list" aria-label="Raccourcis">
       <button type="button" class="list-row" data-view="progres"><span><small>Muscles de la semaine</small><b>${h.any ? "À travailler : " + esc(MUSCLES[h.weak].toLowerCase()) : "Pas encore de séance cette semaine"}</b></span>${CHEV}</button>
@@ -391,6 +403,7 @@ function renderProgress() {
   const recs = []; keys.forEach((xx, k) => { const b = bestOf(k); if (b) recs.push({ k, ...b }); });
   $("v-progres").innerHTML = `
     <div class="stack" style="gap:4px"><div class="eyebrow">Courbes et records</div><h1 class="d h1 up">Progrès</h1></div>
+    ${cranCard()}
     ${heatCard()}
     <label class="field" for="pk">Exercice
       <select id="pk">${[...keys.keys()].map(k => `<option value="${k}" ${k === PK ? "selected" : ""}>${esc(LIB[k].n)}${sessionsWith(k).length ? "" : " · pas encore fait"}</option>`).join("")}</select></label>
@@ -499,6 +512,7 @@ function openSession(dayId) {
   if (DB.logs[id].finished) DB.logs[id].finished = false;
   saveG(); save();
   native("requestNotifications");
+  if (musicOn()) native("musicStart");
   $("session").hidden = false; document.body.style.overflow = "hidden";
   lockScreen();
   if (G.screen === "rest") { if (G.restEnd > Date.now()) return screenRest(true); return proceed(); }
@@ -510,6 +524,7 @@ function closeSession() {
   const ses = $("session"); ses.style.transform = ""; ses.style.transition = "";
   ses.hidden = true; document.body.style.overflow = "";
   $("stage").innerHTML = ""; unlockScreen(); render();
+  native("musicStop");
 }
 
 // Transition entre deux écrans
@@ -683,6 +698,7 @@ function screenSet() {
       <button type="button" data-act="step" data-f="r" data-d="1" aria-label="Une répétition de plus">+</button></div>
     <div class="muted" style="font-size:13px;text-align:center">${hint}</div>
     <div class="push">
+      ${musicBar()}
       <button class="link" style="background:none;border:none" type="button" data-act="intro">Revoir le geste</button>
       <button class="btn-main" type="button" data-act="validate"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Série validée</button>
     </div>`);
@@ -739,7 +755,7 @@ function screenRest(resumed) {
       <div class="rest-num"><span class="grow"><span class="shake"><span class="t d num" id="r-time" role="timer">${mmss(Math.max(0, Math.ceil((G.restEnd - Date.now()) / 1000)))}</span></span></span><span class="muted" style="font-size:14px">sur ${mmss(G.restTotal)}</span></div>
     </div>
     <div class="card next glass"><div class="eyebrow">Ensuite</div><div style="font-size:17px;font-weight:600;margin-top:2px">${esc(restNextText(G.after))}</div></div>
-    <div class="push"><div class="rest-btns">
+    <div class="push">${musicBar()}<div class="rest-btns">
       <button class="btn glass" type="button" data-act="plus">+15 secondes</button>
       <button class="btn btn-dark" type="button" data-act="skip">Passer</button></div></div>`, "rest zoom rest-bg");
   el.querySelector(".in").classList.add("rest");
@@ -776,6 +792,13 @@ function proceed() {
   goto(a.screen);
 }
 
+// « C'est parti » : échauffement avant le premier exercice chargé, sinon la première série à faire
+function beginExercise() { const j = firstPending(curX()); G.set = j < 0 ? 0 : j; goto(needsWarmup() ? "warmup" : "set"); }
+function addRest(sec) {
+  G.restEnd = Math.max(G.restEnd, Date.now()) + sec * 1000; G.restTotal += sec; saveG(); scheduleNativeRest();
+  if (!timer) { const el = $("stage").querySelector(".screen:not(.leave)"); if (el) { el.classList.remove("go"); timer = setInterval(() => tick(el), 200); } }
+}
+
 // Écran 4 : bilan
 function finishSession() {
   doc().finished = true; doc().finishedAt = Date.now(); save();
@@ -791,6 +814,7 @@ function screenDone() {
     if (b && top && e1rm(top) > b.v + 0.01) recs.push(`${LIB[x.k].n} : ${isPdc(x.k) ? top.r + " reps" : fmtW(top.w) + " × " + top.r}`);
   });
   const total = d.ex.reduce((t, x) => t + x.sets, 0), mins = l.startedAt ? Math.round(((l.finishedAt || Date.now()) - l.startedAt) / 60000) : null;
+  const news = cranNews(); save();
   vibrate([60, 60, 60]);
   transition(`
     <div class="stack" style="gap:6px;margin-top:12px"><div class="eyebrow">${esc(d.title)}</div><h1 class="d s-title">Séance terminée</h1></div>
@@ -800,9 +824,11 @@ function screenDone() {
     </div>
     <div class="tile"><span class="k">Volume soulevé</span><span class="v"><span data-count="${Math.round(vol)}">${Math.round(vol).toLocaleString("fr-FR")}</span><small> kg</small></span><span class="s">charge × répétitions, toutes séries confondues</span></div>
     ${recs.length ? `<div class="card coach"><b>${recs.length} record${recs.length > 1 ? "s" : ""} battu${recs.length > 1 ? "s" : ""}</b><span class="chip record">Record</span><p>${recs.map(esc).join("<br>")}</p></div>` : ""}
+    ${news.up || news.fresh.length ? `<button type="button" class="card coach cran-new" data-act="crans"><b>${news.up ? "Tu montes au cran " + news.c.level : "Nouveau badge"}</b><span class="chip record">Cran ${news.c.level}</span><p>${news.fresh.map(b => esc(b.name)).join(" · ") || "Continue comme ça : le prochain cran arrive plus vite que tu ne le crois."}</p></button>` : ""}
     <div class="card coach"><b>Cardio</b><span class="chip depart">Ensuite</span><p>${esc(d.cardio)}</p></div>
     <div class="push"><button class="btn-main" type="button" data-act="home">Retour à l’accueil</button></div>`, "done-bg");
   countUp($("stage"));
+  if (news.up) setTimeout(() => celebrate("Monte d’un cran", "Cran " + news.c.level, "Nouveau cran"), 700);
 }
 
 // Les chiffres du bilan défilent jusqu'à leur valeur (moment rare : une fois par séance)
@@ -820,14 +846,14 @@ function countUp(root) {
 }
 
 // Record battu : la marche Notch se dessine et monte d'un cran
-function celebrate(exName, value) {
+function celebrate(exName, value, title = "Nouveau record") {
   vibrate([20, 50, 20, 50, 120]);
-  announce(`Nouveau record : ${exName}, ${value}`);
+  announce(`${title} : ${exName}, ${value}`);
   const el = document.createElement("div");
   el.className = "celebrate"; el.setAttribute("role", "status");
   el.innerHTML = `<div class="cel-card glass">
     <svg viewBox="0 0 64 64" width="88" height="88" aria-hidden="true"><rect width="64" height="64" rx="16" fill="var(--accent)"/><path class="draw" pathLength="1" d="M14 44 H26 V34 H38 V24 H50" fill="none" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    <div class="eyebrow" style="color:var(--accent)">Nouveau record</div>
+    <div class="eyebrow" style="color:var(--accent)">${esc(title)}</div>
     <div class="d up" style="font-size:26px;line-height:1">${esc(value)}</div>
     <div class="muted" style="font-size:14px">${esc(exName)}</div></div>`;
   document.body.appendChild(el);
@@ -919,6 +945,9 @@ function openSettings() {
       <label class="toggle" for="st-solid"><span><b>Réduire la transparence</b><small>Fonds pleins à la place de l’effet verre</small></span><input type="checkbox" role="switch" id="st-solid" ${DB.prefs.solid ? "checked" : ""}></label>
       <label class="toggle" for="st-sound"><span><b>Bip de fin de récup</b><small>Sur les 3 dernières secondes</small></span><input type="checkbox" role="switch" id="st-sound" ${DB.prefs.sound !== false ? "checked" : ""}></label>
     </div>
+    ${NATIVE ? `<div class="set-group" id="music-group">${musicGroup()}</div>
+    <div class="set-group" id="cal-group">${calGroup()}</div>
+    <div class="set-group" id="gym-group">${gymGroup()}</div>` : ""}
     <div class="set-group">
       <div class="eyebrow">Sauvegarde</div>
       <p class="muted" style="font-size:14px;margin:4px 0 8px">Tes données sont seulement sur ce téléphone. Exporte-les chaque semaine : c’est ta sauvegarde, et le fichier à envoyer à Claude pour un bilan.${DB.lastExport ? " Dernière : " + frDate(DB.lastExport, { day: "numeric", month: "long" }) + "." : ""}</p>
@@ -927,6 +956,7 @@ function openSettings() {
     ${NATIVE ? "" : `<p class="muted" style="font-size:13px;margin:0">Les notifications fonctionnent dans l’appli Android.</p>`}`, "Réglages");
 }
 function onSettingChange(id, el) {
+  if (onConnectSetting(id, el)) return vibrate(8);
   const n = DB.prefs.notif;
   if (id === "st-session") n.session = el.checked;
   else if (id === "st-time" && el.value) n.time = el.value;
@@ -952,7 +982,7 @@ function setupGestures() {
   let st = null;
   stage.addEventListener("pointerdown", e => {
     if (!G || !["intro", "set"].includes(G.screen) || SHEET) return;
-    if (e.target.closest("input, .stepper, .sets, .swap-btn")) return;
+    if (e.target.closest("input, .stepper, .sets, .swap-btn, .mplayer")) return;
     const el = stage.querySelector(".screen:not(.leave)"); if (!el) return;
     st = { id: e.pointerId, x0: e.clientX, y0: e.clientY, el, dir: null, dx: 0, hist: [{ x: e.clientX, t: e.timeStamp }] };
   });
@@ -1127,8 +1157,9 @@ function pushWidgets() {
       const b = bestOf(k); if (!b || b.date < mon) return;
       if (sessionsWith(k).some(s => s.date < mon)) records++; // un record ne compte que s'il bat une séance d'avant
     });
+    const mv = {}; weekPlan(mon).forEach(p => { if (p.moved) mv[p.id] = p.wd; });
     native("updateWidgets", JSON.stringify({
-      plan, done: doneList, active: G ? { date: DB.logs[G.docId] && DB.logs[G.docId].date, day: G.dayId } : null,
+      plan, done: doneList, moves: { monday: mon, days: mv }, active: G ? { date: DB.logs[G.docId] && DB.logs[G.docId].date, day: G.dayId } : null,
       coach: coachOut, more: Math.max(0, alerts.length - 1),
       heat: { week: mon, lv: h.lv, weak: h.weak ? MUSCLES[h.weak] : null, any: h.any },
       week: { monday: mon, records },
@@ -1143,6 +1174,7 @@ window.notchOpen = action => {
   if (action.startsWith("start:")) { const id = action.slice(6); if (dayById(id)) openSession(id); }
   else if (action === "today") { const wi = weekIdx(); const d = (G && dayById(G.dayId)) || DAYS.find(x => x.wd === wi + 1) || DAYS.find(x => x.wd > wi + 1) || DAYS[0]; openSession(d.id); }
   else if (action.startsWith("view:")) { if (!$("session").hidden) closeSession(); show(action.slice(5)); }
+  else if (action === "resume") { dropStaleG(); if (G) openSession(G.dayId); }
 };
 window.notchBack = () => {
   if (SHEET) { closeSheet(); return true; }
@@ -1171,8 +1203,9 @@ document.addEventListener("click", e => {
   if (a === "change") return openChange();
   if (a === "sheet-close") return closeSheet();
   if (a === "unswap") { delete DB.prefs.swaps[b.dataset.day + ":" + b.dataset.i]; save(); return renderProgram(); }
+  if (onConnectAct(a, b)) return;
   if (!G) return;
-  if (a === "begin") { const j = firstPending(curX()); G.set = j < 0 ? 0 : j; return goto(needsWarmup() ? "warmup" : "set"); }
+  if (a === "begin") return beginExercise();
   if (a === "warm-done") { G.warm = G.warm || []; G.warm[+b.dataset.i] = !G.warm[+b.dataset.i]; saveG(); vibrate(15); b.setAttribute("aria-pressed", String(!!G.warm[+b.dataset.i])); b.closest(".warm-row").classList.toggle("ok", !!G.warm[+b.dataset.i]); return; }
   if (a === "warm-end") { G.warmed = true; saveG(); return goto("set"); }
   if (a === "note") return openNote(b.dataset.k);
@@ -1187,9 +1220,9 @@ document.addEventListener("click", e => {
     const inp = $("in-" + b.dataset.f), cur = num(inp.value) || 0, nv = Math.max(0, Math.round((cur + parseFloat(b.dataset.d)) * 10) / 10);
     inp.value = b.dataset.f === "r" ? String(Math.max(1, Math.round(nv))) : fmtN(nv); vibrate(8);
     if (b.dataset.f === "w" && $("plates")) $("plates").innerHTML = platesHTML(curX().k, nv);
-    return;
+    return liveUpdate();
   }
-  if (a === "plus") { G.restEnd = Math.max(G.restEnd, Date.now()) + 15000; G.restTotal += 15; saveG(); scheduleNativeRest(); if (!timer) { const el = $("stage").querySelector(".screen:not(.leave)"); el.classList.remove("go"); timer = setInterval(() => tick(el), 200); } return; }
+  if (a === "plus") return addRest(15);
   if (a === "skip") return proceed();
   if (a === "home") { G = null; saveG(); closeSession(); return show("accueil"); }
 });
@@ -1197,10 +1230,11 @@ $("s-quit").addEventListener("click", closeSession);
 $("import-file").addEventListener("change", e => { const f = e.target.files[0]; if (f) importData(f); e.target.value = ""; });
 document.addEventListener("change", e => {
   if (e.target.id === "pk") { PK = e.target.value; renderProgress(); }
-  else if (e.target.id && e.target.id.startsWith("st-")) onSettingChange(e.target.id, e.target);
+  else if (e.target.id && (e.target.id.startsWith("st-") || e.target.id.startsWith("pl-"))) onSettingChange(e.target.id, e.target);
 });
 document.addEventListener("input", e => {
   if (e.target.id === "in-w" && $("plates") && G) $("plates").innerHTML = platesHTML(curX().k, num(e.target.value));
+  if ((e.target.id === "in-w" || e.target.id === "in-r") && G) liveUpdate();
 });
 document.addEventListener("submit", e => {
   if (e.target.id !== "bform") return; e.preventDefault();
@@ -1213,18 +1247,23 @@ document.addEventListener("submit", e => {
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState !== "visible") return;
   // Retour dans l'appli : l'accueil suit le jour réel
-  if ($("session").hidden) { dropStaleG(); render(); pushWidgets(); return; }
+  CAL_CACHE = null;
+  refreshMusicGroup(); gymRefresh(); // réglages ouverts : une autorisation vient peut-être d'être donnée
+  if ($("session").hidden) { dropStaleG(); render(); pushWidgets(); calSync(); return; }
   if (!G) return;
   lockScreen();
+  if (musicOn()) native("musicStart");
   if (G.screen === "rest" && G.restEnd <= Date.now()) proceed();
 });
 window.addEventListener("hashchange", () => { const h = location.hash.slice(1); if (h && h !== VIEW) show(h); });
 
 // ---------- Démarrage ----------
-load(); loadG(); applyPrefs();
+load(); loadG(); applyPrefs(); initSeen();
+openingIntro();
 setupGestures();
 show(location.hash.slice(1) || "accueil");
 pushWidgets();
+calSync();
 // À minuit, l'accueil passe tout seul au jour suivant
 (function atMidnight() {
   const n = new Date(), next = new Date(n.getFullYear(), n.getMonth(), n.getDate() + 1, 0, 0, 5);

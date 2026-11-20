@@ -7,6 +7,9 @@ class NotchApp : Application() {
         super.onCreate()
         Rest.createChannels(this)
         Reminders.createChannel(this)
+        Live.createChannel(this)
+        Gym.createChannel(this)
+        Gym.register(this)
     }
 
     companion object {

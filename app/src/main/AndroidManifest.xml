@@ -8,6 +8,29 @@
     <!-- Minuteur de récup précis, même écran éteint -->
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
+    <!-- Agenda : conflits avec tes séances, et ajout des séances (si tu l'actives) -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <uses-permission android:name="android.permission.WRITE_CALENDAR" />
+    <!-- Arrivée à la salle -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+
+    <!-- Applis que Notch peut ouvrir : Basic-Fit et les lecteurs de musique -->
+    <queries>
+        <package android:name="com.basicfit.trainingApp" />
+        <package android:name="com.spotify.music" />
+        <package android:name="deezer.android.app" />
+        <package android:name="com.google.android.apps.youtube.music" />
+        <package android:name="com.apple.android.music" />
+        <package android:name="com.amazon.mp3" />
+        <package android:name="com.soundcloud.android" />
+        <package android:name="com.qobuz.music" />
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+    </queries>
 
     <application
         android:name=".NotchApp"
@@ -37,6 +60,25 @@
         <receiver
             android:name=".RestReceiver"
             android:exported="false" />
+
+        <receiver
+            android:name=".LiveReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".GymReceiver"
+            android:exported="false" />
+
+        <!-- Mini-lecteur : permet de voir et piloter la musique en cours (ne lit pas tes notifications) -->
+        <service
+            android:name=".MediaListener"
+            android:label="@string/app_name"
+            android:exported="false"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
 
         <receiver
             android:name=".ReminderReceiver"

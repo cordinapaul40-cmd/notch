@@ -82,7 +82,7 @@ object WidgetStore {
 
 private val DAY_NAMES = listOf("lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche")
 
-data class PlanDay(val id: String, val wd: Int, val title: String, val tag: String, val ex: Int, val mins: Int, val first: String)
+data class PlanDay(val id: String, val wd: Int, val title: String, val tag: String, val ex: Int, val mins: Int, val first: String, val tab: String)
 
 data class NextInfo(
     val label: String,
@@ -93,20 +93,24 @@ data class NextInfo(
     val dots: List<Int>,   // 0 repos · 1 prévu · 2 fait · 3 ratée
     val todayIndex: Int,
     val count: Int,
+    val tab: String = "",
 )
 
 /** Calcule la séance à afficher pour aujourd'hui, même si l'appli n'a pas été ouverte depuis. */
 fun computeNext(o: JSONObject): NextInfo? {
     val arr = o.optJSONArray("plan") ?: return null
-    val plan = (0 until arr.length()).map {
-        val p = arr.getJSONObject(it)
-        PlanDay(p.getString("id"), p.getInt("wd"), p.getString("title"), p.optString("tag"), p.optInt("ex"), p.optInt("mins"), p.optString("first"))
-    }.sortedBy { it.wd }
-    if (plan.isEmpty()) return null
-
     val today = LocalDate.now()
     val wd = today.dayOfWeek.value
     val monday = today.minusDays((wd - 1).toLong())
+    // Séances décalées cette semaine (conflit d'agenda) : seulement pour la semaine concernée
+    val moves = o.optJSONObject("moves")?.takeIf { it.optString("monday") == monday.toString() }?.optJSONObject("days")
+    val plan = (0 until arr.length()).map {
+        val p = arr.getJSONObject(it)
+        val id = p.getString("id")
+        val w = moves?.optInt(id, 0)?.takeIf { d -> d in 1..7 } ?: p.getInt("wd")
+        PlanDay(id, w, p.getString("title"), p.optString("tag"), p.optInt("ex"), p.optInt("mins"), p.optString("first"), p.optString("tab"))
+    }.sortedBy { it.wd }
+    if (plan.isEmpty()) return null
     val doneArr = o.optJSONArray("done")
     data class Done(val date: LocalDate, val day: String, val finished: Boolean)
     val done = if (doneArr == null) emptyList() else (0 until doneArr.length()).mapNotNull {
@@ -159,6 +163,7 @@ fun computeNext(o: JSONObject): NextInfo? {
         dots = dots,
         todayIndex = wd - 1,
         count = weekDone.size,
+        tab = target.tab,
     )
 }
 

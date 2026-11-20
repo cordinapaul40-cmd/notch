@@ -49,9 +49,19 @@ class MainActivity : ComponentActivity() {
 
     private val askNotif = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
+    // Permissions demandées par la page (agenda, localisation) : la réponse lui est renvoyée
+    private var permKey: String? = null
+    private val askPermsLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { res ->
+        val key = permKey ?: return@registerForActivityResult
+        permKey = null
+        val ok = res.isNotEmpty() && res.values.all { it }
+        js("window.notchPerm && notchPerm(${JSONObject.quote(key)}, $ok)")
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Live.activity = java.lang.ref.WeakReference(this)
 
         val loader = WebViewAssetLoader.Builder()
             .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
@@ -85,6 +95,10 @@ class MainActivity : ComponentActivity() {
                 pageReady = true
                 pendingAction?.let { deliver(it) }
                 pendingAction = null
+                // Bouton de la notification touché alors que l'appli était fermée
+                Live.takePending(this@MainActivity)?.let { id ->
+                    web.evaluateJavascript("window.notchAction && notchAction(${JSONObject.quote(id)})", null)
+                }
             }
         }
 
@@ -142,6 +156,12 @@ class MainActivity : ComponentActivity() {
         super.onPause()
     }
 
+    override fun onDestroy() {
+        if (Live.activity?.get() === this) Live.activity = null
+        Music.stop()
+        super.onDestroy()
+    }
+
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         styleBars()
@@ -166,6 +186,29 @@ class MainActivity : ComponentActivity() {
     fun export(json: String, name: String) {
         pendingExport = json
         runCatching { createDoc.launch(name) }.onFailure { pendingExport = null }
+    }
+
+    fun hasPerm(name: String): Boolean =
+        ContextCompat.checkSelfPermission(this, name) == PackageManager.PERMISSION_GRANTED
+
+    fun askPerms(key: String, names: List<String>) {
+        val missing = names.filter { !hasPerm(it) }
+        if (missing.isEmpty()) { js("window.notchPerm && notchPerm(${JSONObject.quote(key)}, true)"); return }
+        permKey = key
+        runCatching { askPermsLauncher.launch(missing.toTypedArray()) }.onFailure {
+            permKey = null
+            js("window.notchPerm && notchPerm(${JSONObject.quote(key)}, false)")
+        }
+    }
+
+    fun openAppSettings() {
+        runCatching {
+            startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+        }
+    }
+
+    fun startMusic() {
+        Music.start(this) { json -> js("window.notchMusic && notchMusic($json)") }
     }
 
     fun js(code: String) {

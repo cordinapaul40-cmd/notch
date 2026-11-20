@@ -24,6 +24,17 @@ Tes données restent sur le téléphone lors des mises à jour.
 
 Tout se règle dans Réglages (roue dentée sur l'accueil), avec aussi « Réduire la transparence » et le bip de fin de récup.
 
+## Connexions
+
+- **Écran verrouillé** : pendant une séance, la série ou la récup en cours s'affiche dans les notifications et sur l'écran verrouillé, avec ses boutons (**Série validée**, **+15 s**, **Passer**, **C'est parti**). Plus besoin de déverrouiller entre deux séries.
+- **Mini-lecteur** (Réglages → Musique) : pause et morceau suivant sur les écrans de série et de récup. Il pilote le lecteur en cours (Spotify, Deezer, YouTube Music…), sans abonnement particulier. Android demande d'autoriser « l'accès aux notifications » ; si l'interrupteur est grisé : infos de l'appli Notch → ⋮ → *Autoriser les paramètres restreints*. Tu peux aussi coller un lien de playlist par séance.
+- **Agenda** (Réglages → Agenda) : choisis l'heure de tes séances. Notch lit ton agenda : si une séance tombe pendant un cours ou un rendez-vous, l'accueil te propose deux créneaux libres et décale la séance d'un appui. En option, tes séances sont ajoutées à ton agenda et suivent les décalages.
+- **Arrivée à la salle** (Réglages → Arrivée à la salle) : enregistre l'endroit une fois sur place. Quand tu restes 2 minutes au Basic-Fit un jour de séance, une notification propose de la lancer et d'ouvrir l'appli Basic-Fit (QR code d'entrée). Il faut autoriser la position « Toujours ».
+
+## Les crans
+
+Dans Progrès : ton niveau (un cran de plus avec tes séances, le premier en une semaine) et 14 badges qui récompensent la régularité et les progrès (semaines complètes, records, stagnation cassée, kilos perdus). Les nouveautés s'affichent dans le bilan de séance.
+
 ## Gestes
 
 - Glisser à gauche / droite pendant la séance : exercice suivant / précédent.
@@ -51,8 +62,9 @@ Tout est enregistré **uniquement sur le téléphone**. Sur l'accueil, **Exporte
 |---|---|
 | `docs/data.js` | Le programme : exercices, variantes, séries, répétitions, repos, charges de départ |
 | `docs/app.js` | Le fonctionnement des écrans |
+| `docs/connect.js` | Écran verrouillé, musique, agenda, arrivée à la salle, crans |
 | `docs/styles.css` | Couleurs, polices, animations |
-| `app/src/main/java/app/notch/` | La partie Android : écran principal, minuteur et notifications (`Rest.kt`), widgets (`Widgets.kt`) |
+| `app/src/main/java/app/notch/` | La partie Android : écran principal, minuteur (`Rest.kt`), séance sur l'écran verrouillé (`Live.kt`), musique (`Music.kt`), agenda (`Cal.kt`), salle (`Gym.kt`), widgets (`Widgets.kt`) |
 | `.github/workflows/build.yml` | La construction automatique de l'APK |
 
 Le dossier `docs/` est aussi une version web de Notch : dans les réglages GitHub, *Pages* → branche `main`, dossier `/docs`. Après une modification de `docs/`, augmente `VERSION` dans `docs/sw.js` pour la version web.

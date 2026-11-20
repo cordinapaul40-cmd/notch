@@ -158,7 +158,11 @@ class ReminderReceiver : BroadcastReceiver() {
         when (intent.action) {
             Reminders.ACTION_SESSION -> Reminders.onSession(context)
             Reminders.ACTION_WEEKLY -> Reminders.onWeekly(context)
-            Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_MY_PACKAGE_REPLACED -> Reminders.scheduleAll(context)
+            Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_MY_PACKAGE_REPLACED -> {
+                Reminders.scheduleAll(context)
+                // Android oublie les zones de géolocalisation au redémarrage
+                Gym.register(context)
+            }
         }
     }
 }
