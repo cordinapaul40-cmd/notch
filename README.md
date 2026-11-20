@@ -58,6 +58,9 @@ Dans Progrès : ton niveau (un cran de plus avec tes séances, le premier en une
 - **Tes réglages** : une note par exercice (siège, dossier, pieds…), rappelée avant chaque série.
 - **Échauffement** : avant le premier exercice chargé, 2 séries légères (50 % × 10, 75 % × 5).
 - **Disques** : pour les exercices à la barre, ce qu'il faut mettre de chaque côté (barre de 20 kg, ou 10 kg pour la barre EZ).
+- **Après chaque série** : une carte confirme ce que tu as enregistré, avec **Annuler** (faute de frappe) et ton ressenti en un appui (*Facile*, *Correct*, *À fond*, facultatif). Des séries « faciles » font monter la charge plus tôt.
+- **Historique express** : touche « dernière fois » sur l'écran de série pour voir la courbe de tes 6 dernières séances et le détail de la dernière.
+- **Bilan comparé** : en fin de séance, chaque exercice face à ta dernière fois (vert : progrès, gris : pareil, ambre : en baisse) et le travail total comparé à la même séance précédente.
 - Récupération en plein écran. Les 10 dernières secondes passent en rouge, le téléphone vibre chaque seconde et bipe sur les 3 dernières. Les bips passent par-dessus ta musique comme un GPS : Spotify baisse le temps des bips, puis remonte.
 - Si tu verrouilles le téléphone ou quittes l'appli, le compte à rebours continue dans les notifications et une alerte te prévient à la fin.
 

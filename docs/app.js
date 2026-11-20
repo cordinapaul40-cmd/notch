@@ -149,6 +149,8 @@ function coach(x, exclude) {
   let c;
   if (top) c = L.t === "pdc" ? { type: "monte", label: "Monte", text: `${x.hi} répétitions partout : passe à ${x.hi + 3}.` }
                              : { type: "monte", label: "Monte", w: lw + step, text: `${x.hi} répétitions partout à ${fmtW(lw)}. Monte à ${fmtW(lw + step)}.` };
+  else if (L.t !== "pdc" && last.length >= x.sets && last.every(s => s.r >= x.hi - 1 && (s.w || 0) >= lw) && last.filter(s => s.f === 1).length * 2 >= last.length)
+    c = { type: "monte", label: "Monte", w: lw + step, text: `Facile la dernière fois à ${fmtW(lw)} : monte à ${fmtW(lw + step)}.` };
   else if (last.some(s => s.r < x.lo)) c = { type: "garde", label: "Garde", w: lw, text: `Garde ${L.t === "pdc" ? "le même effort" : fmtW(lw)} et vise au moins ${x.lo} répétitions par série.` };
   else c = { type: "garde", label: "Garde", w: lw, text: `Garde ${L.t === "pdc" ? "le même effort" : fmtW(lw)}. Objectif : ${x.hi} répétitions sur toutes les séries.` };
   if (c.type !== "monte" && hist.length >= 4) {
@@ -711,11 +713,13 @@ function screenSet() {
   // Montée d'un cran : la charge défile la première fois qu'on la voit dans la séance
   const up = p.from === "coach" && !isPdc(x.k) ? STEP[L.t] : 0;
   const rollIt = up && !REDUCED && !(G.rolled && G.rolled[x.k]);
+  const fx = ENTER_FX; ENTER_FX = "";
   const el = transition(`
     <div class="big-set"><span class="d n up">Série ${j + 1}</span><span class="d of">/ ${x.sets}</span></div>
     ${DB.prefs.notes[x.k] ? `<button type="button" class="note-line" data-act="note" data-k="${x.k}"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>${esc(DB.prefs.notes[x.k])}</button>` : ""}
     <div class="sets" style="--n:${x.sets}">${chips}</div>
-    <div class="muted" style="font-size:14px">Objectif <b style="color:var(--ink)">${x.lo} à ${x.hi} reps</b>${hist && hist.sets[j] ? ` · dernière fois ${hist.sets[j].r} × ${isPdc(x.k) ? "" : fmtN(hist.sets[j].w) + " kg"}` : ""}</div>
+    <div class="muted" style="font-size:14px">Objectif <b style="color:var(--ink)">${x.lo} à ${x.hi} reps</b>${hist && hist.sets[j] ? ` · <button type="button" class="hist-btn" data-act="hist" aria-expanded="${HIST_OPEN}">dernière fois ${hist.sets[j].r} × ${isPdc(x.k) ? "" : fmtN(hist.sets[j].w) + " kg"}</button>` : (hist ? ` · <button type="button" class="hist-btn" data-act="hist" aria-expanded="${HIST_OPEN}">historique</button>` : "")}</div>
+    <div id="hist-slot">${HIST_OPEN && hist ? histCard(x) : ""}</div>
     ${isPdc(x.k) ? "" : `<div class="stepper">
       <button type="button" data-act="step" data-f="w" data-d="-${STEP[L.t]}" aria-label="Moins ${fmtN(STEP[L.t])} kg">−</button>
       <label class="mid" for="in-w"><span>Charge</span><input id="in-w" type="text" inputmode="decimal" value="${p.w === "" || p.w == null ? "" : fmtN(p.w)}" placeholder="0"><span class="unit">${unitOf(x.k)}</span></label>
@@ -731,7 +735,7 @@ function screenSet() {
       ${musicBar()}
       <div class="set-links"><button class="link" style="background:none;border:none" type="button" data-act="intro">Revoir le geste</button>${doneSets(arr).length ? "" : `<button class="link" style="background:none;border:none" type="button" data-act="busy">Machine prise ?</button>`}</div>
       <button class="btn-main" type="button" data-act="validate"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Série validée</button>
-    </div>`);
+    </div>`, fx);
   if (rollIt) { G.rolled = Object.assign({}, G.rolled, { [x.k]: 1 }); saveG(); rollWeight(el, x.k, num(p.w) - up, num(p.w)); }
 }
 
@@ -749,6 +753,7 @@ function validate() {
   save(); vibrate(25);
   if (best && e1rm({ w, r }) > best.v + 0.01) celebrate(L.n, isPdc(x.k) ? `${r} répétitions` : `${fmtN(w)} kg × ${r}`);
   const next = firstPending(x);
+  G.last = wasEdit ? null : { k: x.k, ex: G.ex, j };
   if (wasEdit) { if (next >= 0) { G.set = next; return goto("set"); } return afterExercise(); }
   if (next >= 0) return startRest(x.rest, { screen: "set", ex: G.ex, set: next });
   afterExercise();
@@ -762,6 +767,7 @@ function afterExercise() {
   finishSession();
 }
 
+let ENTER_FX = "";
 // Écran 3 : récupération plein écran
 function startRest(sec, after) {
   G.screen = "rest"; G.restEnd = Date.now() + sec * 1000; G.restTotal = sec; G.after = after; saveG();
@@ -779,8 +785,10 @@ function restNextText(a) {
 function screenRest(resumed) {
   const x = curX();
   topbar(`${LIB[x.k].n}`);
+  const lastCard = lastSetCard();
   const el = transition(`
-    <div class="rest-label" id="r-label" style="margin-top:12px">Récupération</div>
+    ${lastCard}
+    <div class="rest-label" id="r-label" style="margin-top:${lastCard ? 0 : 12}px">Récupération</div>
     <div class="rest-wrap shake-host">
       <div class="glow"></div>
       <svg class="ring" viewBox="0 0 320 320" aria-hidden="true"><defs><linearGradient id="rg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="var(--accent-2)"/><stop offset="1" stop-color="var(--accent)"/></linearGradient></defs><circle class="tr" cx="160" cy="160" r="140"/><circle class="pr" id="r-ring" cx="160" cy="160" r="140" stroke-dasharray="879.65" stroke-dashoffset="0"/></svg>
@@ -791,6 +799,7 @@ function screenRest(resumed) {
       <button class="btn glass" type="button" data-act="plus">+15 secondes</button>
       <button class="btn btn-dark" type="button" data-act="skip">Passer</button></div></div>`, "rest zoom rest-bg");
   el.querySelector(".in").classList.add("rest");
+  if (lastCard) el.querySelector(".in").classList.add("has-last");
   lastSec = null;
   clearInterval(timer); timer = setInterval(() => tick(el), 200); tick(el);
 }
@@ -819,6 +828,10 @@ function tick(el) {
 }
 function proceed() {
   clearInterval(timer); timer = null; native("cancelRest");
+  // Le cercle se resserre et laisse place au numéro de la série
+  const old = $("stage").querySelector(".screen:not(.leave)");
+  if (old && G.screen === "rest" && !REDUCED) { old.classList.add("to-next"); ENTER_FX = "rise"; }
+  G.last = null;
   const a = G.after || { screen: "set", ex: G.ex, set: firstPending(curX()) };
   G.ex = a.ex; G.set = Math.max(0, a.set); delete G.restEnd; delete G.after;
   goto(a.screen);
@@ -855,6 +868,7 @@ function screenDone() {
       <div class="tile"><span class="k">Durée</span><span class="v">${mins != null && mins < 300 ? `<span data-count="${mins}">${mins}</span><small> min</small>` : "—"}</span></div>
     </div>
     <div class="tile"><span class="k">Volume soulevé</span><span class="v"><span data-count="${Math.round(vol)}">${Math.round(vol).toLocaleString("fr-FR")}</span><small> kg</small></span><span class="s">charge × répétitions, toutes séries confondues</span></div>
+    ${compareBlock()}
     ${recs.length ? `<div class="card coach"><b>${recs.length} record${recs.length > 1 ? "s" : ""} battu${recs.length > 1 ? "s" : ""}</b><span class="chip record">Record</span><p>${recs.map(esc).join("<br>")}</p></div>` : ""}
     ${news.up || news.fresh.length ? `<button type="button" class="card coach cran-new" data-act="crans"><b>${news.up ? "Tu montes au cran " + news.c.level : "Nouveau badge"}</b><span class="chip record">Cran ${news.c.level}</span><p>${news.fresh.map(b => esc(b.name)).join(" · ") || "Continue comme ça : le prochain cran arrive plus vite que tu ne le crois."}</p></button>` : ""}
     <div class="card coach"><b>Cardio</b><span class="chip depart">Ensuite</span><p>${esc(d.cardio)}</p></div>
@@ -1014,7 +1028,7 @@ function setupGestures() {
   let st = null;
   stage.addEventListener("pointerdown", e => {
     if (!G || !["intro", "set"].includes(G.screen) || SHEET) return;
-    if (e.target.closest("input, .stepper, .sets, .swap-btn, .mplayer")) return;
+    if (e.target.closest("input, .stepper, .sets, .swap-btn, .mplayer, .last-card, .hist-card")) return;
     const el = stage.querySelector(".screen:not(.leave)"); if (!el) return;
     st = { id: e.pointerId, x0: e.clientX, y0: e.clientY, el, dir: null, dx: 0, hist: [{ x: e.clientX, t: e.timeStamp }] };
   });

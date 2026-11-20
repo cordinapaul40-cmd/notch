@@ -143,6 +143,9 @@ function onPlusAct(a, b) {
   if (a === "busy-later") { busyLater(); return true; }
   if (a === "busy-pick") { busyPick(b.dataset.k); return true; }
   if (a === "busy") { openBusy(); return true; }
+  if (a === "feel") { setFeel(+b.dataset.f); return true; }
+  if (a === "undo-set") { undoSet(); return true; }
+  if (a === "hist") { toggleHist(); return true; }
   return false;
 }
 
@@ -386,4 +389,117 @@ async function shareMonth(s) {
     if (navigator.canShare && navigator.canShare({ files: [file] })) return await navigator.share({ files: [file], text: msg });
   } catch (e) {}
   const a = document.createElement("a"); a.href = url; a.download = `notch-${s.mk}.png`; document.body.appendChild(a); a.click(); a.remove();
+}
+
+// ============================================================
+//  Après chaque série : confirmation, « Annuler » et ressenti
+// ============================================================
+const FEELS = [[1, "Facile", "3+ en réserve"], [2, "Correct", "1 ou 2"], [3, "À fond", "0 en réserve"]];
+const feelName = f => (FEELS.find(x => x[0] === f) || [])[1] || "";
+function lastSetCard() {
+  const L = G.last;
+  if (!L) return "";
+  const x = exs()[L.ex], s = x && (doc().ex[x.k] || [])[L.j];
+  if (!s || x.k !== L.k) return "";
+  return `<div class="last-card glass" id="last-card">
+    <div class="lc-top"><span class="lc-ok" aria-hidden="true"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg></span>
+      <b>Série ${L.j + 1} · ${isPdc(x.k) ? s.r + " reps" : `${fmtN(s.w)} kg × ${s.r}`}</b>
+      <button type="button" class="lc-undo" data-act="undo-set">Annuler</button></div>
+    <span class="lc-q">Comment c’était ? <span class="muted">(facultatif)</span></span>
+    <div class="feel" role="group" aria-label="Ressenti">${FEELS.map(([f, n, sub]) => `<button type="button" data-act="feel" data-f="${f}" aria-pressed="${s.f === f}" class="${s.f === f ? "on" : ""}"><b>${n}</b><small>${sub}</small></button>`).join("")}</div>
+  </div>`;
+}
+function setFeel(f) {
+  const L = G.last; if (!L) return;
+  const x = exs()[L.ex], s = (doc().ex[x.k] || [])[L.j]; if (!s) return;
+  s.f = s.f === f ? undefined : f; save(); vibrate(8);
+  document.querySelectorAll("#last-card .feel button").forEach(b => { const on = +b.dataset.f === s.f; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on); });
+}
+function undoSet() {
+  const L = G.last; if (!L) return;
+  const list = exs(), x = list[L.ex], arr = (doc().ex[x.k] || []).slice(), s = arr[L.j];
+  if (!s) return;
+  arr[L.j] = null;
+  while (arr.length && arr[arr.length - 1] == null) arr.pop();
+  doc().ex[x.k] = arr; save();
+  clearInterval(timer); timer = null; native("cancelRest");
+  G.ex = L.ex; G.set = L.j; delete G.restEnd; delete G.after; G.last = null;
+  goto("set");
+  // Les valeurs que tu avais saisies reviennent, prêtes à corriger
+  const w = $("in-w"), r = $("in-r");
+  if (w && !isPdc(x.k)) { w.value = fmtN(s.w); if ($("plates")) $("plates").innerHTML = platesHTML(x.k, s.w); }
+  if (r) r.value = s.r;
+  vibrate(15); toast("Série annulée : corrige et valide");
+}
+
+// ============================================================
+//  Historique express sur l'écran de série
+// ============================================================
+let HIST_OPEN = false;
+function histCard(x) {
+  const hist = sessionsWith(x.k, G.docId).slice(0, 6).reverse();
+  if (!hist.length) return "";
+  const pdc = isPdc(x.k);
+  const val = h => pdc ? Math.max(...h.sets.map(s => s.r)) : Math.max(...h.sets.map(s => s.w || 0));
+  const v = hist.map(val), lo = Math.min(...v), hi = Math.max(...v), span = hi - lo || 1;
+  const W = 200, X = i => hist.length === 1 ? W / 2 : i * W / (hist.length - 1), Y = n => 40 - (n - lo) / span * 32;
+  const path = v.map((n, i) => `${i ? "L" : "M"}${X(i).toFixed(1)} ${Y(n).toFixed(1)}`).join(" ");
+  const last = hist[hist.length - 1];
+  const feels = last.sets.map(s => s.f).filter(Boolean);
+  return `<div class="hist-card">
+    <div class="row"><b>${hist.length > 1 ? `Tes ${hist.length} dernières séances` : "Ta dernière séance"}</b><span class="muted" style="font-size:13px">${pdc ? "reps max" : "charge max"} : ${pdc ? hi : fmtN(hi) + " kg"}</span></div>
+    ${hist.length > 1 ? `<svg viewBox="-8 2 216 46" width="100%" height="64" aria-hidden="true"><path d="${path}" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>${v.map((n, i) => `<circle cx="${X(i).toFixed(1)}" cy="${Y(n).toFixed(1)}" r="4" fill="${i === v.length - 1 ? "var(--accent)" : "var(--surface)"}" stroke="var(--accent)" stroke-width="2"/>`).join("")}</svg>
+    <div class="hist-dates">${hist.map((h, i) => `<span${i === hist.length - 1 ? ' class="on"' : ""}>${esc(parseD(h.date).toLocaleDateString("fr-FR", { day: "numeric", month: "short" }))}</span>`).join("")}</div>` : ""}
+    <div class="hist-last"><span class="eyebrow">Le ${esc(frDate(last.date, { day: "numeric", month: "long" }))}${feels.length ? ` · ressenti « ${esc(feelName(Math.round(feels.reduce((a, b) => a + b, 0) / feels.length)).toLowerCase())} »` : ""}</span>
+      <div class="hist-sets" style="--n:${last.sets.length}">${last.sets.map(s => `<span>${pdc ? `<b>${s.r}</b> reps` : `<b>${fmtN(s.w)}</b>×${s.r}`}</span>`).join("")}</div></div>
+  </div>`;
+}
+function toggleHist() {
+  HIST_OPEN = !HIST_OPEN;
+  const slot = document.querySelector(".screen:not(.leave) #hist-slot"), b = document.querySelector(".screen:not(.leave) .hist-btn");
+  if (b) b.setAttribute("aria-expanded", HIST_OPEN);
+  if (!slot) return;
+  slot.innerHTML = HIST_OPEN ? histCard(curX()) : "";
+  if (HIST_OPEN && !REDUCED && slot.firstElementChild) slot.firstElementChild.animate([{ opacity: 0, transform: "translateY(-8px)" }, { opacity: 1, transform: "none" }], { duration: 260, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
+  vibrate(8);
+}
+
+// ============================================================
+//  Bilan comparé : chaque exercice face à ta dernière fois
+// ============================================================
+function compareBlock() {
+  const l = doc(), rows = [];
+  let up = 0;
+  exs().forEach(x => {
+    const a = doneSets(l.ex[x.k]); if (!a.length) return;
+    const pdc = isPdc(x.k), prev = sessionsWith(x.k, G.docId)[0];
+    const top = Math.max(...a.map(s => s.w || 0)), reps = a.map(s => s.r);
+    const repTxt = Math.min(...reps) === Math.max(...reps) ? reps[0] : `${Math.min(...reps)} à ${Math.max(...reps)}`;
+    const now = pdc ? `${a.length} × ${repTxt} reps` : `${a.length} × ${repTxt} à ${fmtN(top)} kg`;
+    let chip;
+    if (!prev) chip = ["new", "Nouveau"];
+    else {
+      const pTop = Math.max(...prev.sets.map(s => s.w || 0));
+      const sum = arr => arr.reduce((t, s) => t + s.r, 0);
+      if (!pdc && top > pTop + 0.01) chip = ["up", `↑ +${fmtN(top - pTop)} kg`];
+      else if (!pdc && top < pTop - 0.01) chip = ["down", `↓ −${fmtN(pTop - top)} kg`];
+      else {
+        const n = Math.min(a.length, prev.sets.length), d = sum(a.slice(0, n)) - sum(prev.sets.slice(0, n));
+        chip = d > 0 ? ["up", `↑ +${d} rép.`] : d < 0 ? ["down", `↓ −${-d} rép.`] : ["same", "= pareil"];
+      }
+    }
+    if (chip[0] === "up") up++;
+    rows.push(`<div class="cmp-row"><b>${esc(LIB[x.k].n)}</b><span class="cmp-chip c-${chip[0]}">${chip[1]}</span><small>${esc(now)}</small></div>`);
+  });
+  if (!rows.length) return "";
+  // Travail total comparé à la dernière fois que tu as fait cette même séance
+  const vol = lg => Object.values(lg.ex || {}).reduce((t, arr) => t + doneSets(arr).reduce((u, s) => u + (s.w || 0) * s.r, 0), 0);
+  const prevDay = Object.entries(DB.logs).filter(([id, lg]) => id !== G.docId && lg.day === G.dayId && hasSets(lg) && !lg.deload && lg.date < l.date).sort((a, b) => b[1].date.localeCompare(a[1].date))[0];
+  let head = "";
+  if (prevDay && vol(prevDay[1]) > 0) {
+    const pct = Math.round((vol(l) / vol(prevDay[1]) - 1) * 100);
+    const when = dayName(prevDay[1].date) + (Date.now() - parseD(prevDay[1].date) < 8 * 864e5 ? " dernier" : ` ${parseD(prevDay[1].date).getDate()}`);
+    head = `<div class="cmp-head"><span><span class="eyebrow" style="color:#FFFFFF;opacity:.85">Par rapport à ${esc(when)}</span><b class="d">${pct > 0 ? "+" : pct < 0 ? "−" : ""}${Math.abs(pct)} %</b><small>de travail · ${up} exercice${up > 1 ? "s" : ""} en progrès</small></span>${STEPS_SVG(pct >= 0 ? 4 : 1)}</div>`;
+  }
+  return `${head}<div class="card cmp-list">${rows.join("")}</div>`;
 }

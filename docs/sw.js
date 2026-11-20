@@ -3,7 +3,7 @@
 //  Après chaque modification de l'appli, augmente le numéro de VERSION
 //  pour que les téléphones récupèrent la nouvelle version.
 // ============================================================
-const VERSION = "notch-v10";
+const VERSION = "notch-v11";
 const FILES = ["./", "index.html", "styles.css", "data.js", "connect.js", "plus.js", "app.js", "manifest.webmanifest",
   "icons/icon.svg", "icons/icon-192.png", "icons/icon-512.png", "icons/maskable-512.png"];
 
